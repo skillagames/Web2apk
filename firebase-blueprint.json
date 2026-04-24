@@ -1,0 +1,54 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A web app project that will be converted to an APK.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the project."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns this project."
+        },
+        "appName": {
+          "type": "string",
+          "description": "The name of the application."
+        },
+        "repoUrl": {
+          "type": "string",
+          "description": "The GitHub repository URL."
+        },
+        "permissions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Android permissions required (e.g. RECORD_AUDIO, CAMERA)."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "building", "completed", "failed"],
+          "description": "The status of the APK build."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "appName", "repoUrl", "status"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": {
+        "$ref": "#/entities/Project"
+      },
+      "description": "Stores user projects."
+    }
+  }
+}
