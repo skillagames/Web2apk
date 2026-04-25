@@ -2,10 +2,12 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Smartphone } from 'lucide-react';
 
+export type SplashAnimationType = 'none' | 'fade' | 'zoom' | 'bounce' | 'pulse' | 'flip' | 'float' | 'wobble' | 'slideUp' | 'elastic';
+
 interface SplashPreviewProps {
   backgroundColor: string;
   iconSize: number;
-  animation: 'none' | 'fade' | 'scale' | 'bounce';
+  animation: SplashAnimationType | string;
   iconBase64: string | null;
   scale?: number;
 }
@@ -20,22 +22,53 @@ export default function SplashPreview({
   const animationVariants = {
     none: {},
     fade: {
-      initial: { opacity: 0 },
+      initial: { opacity: 0.3 },
       animate: { opacity: 1 },
-      transition: { duration: 1, repeat: Infinity, repeatType: 'reverse' as const }
+      transition: { duration: 1.5, repeat: Infinity, repeatType: 'reverse' as const }
     },
-    scale: {
-      initial: { scale: 0.5 },
-      animate: { scale: 1 },
-      transition: { duration: 1, repeat: Infinity, repeatType: 'mirror' as const }
+    zoom: {
+      initial: { scale: 0.8, opacity: 0 },
+      animate: { scale: 1, opacity: 1 },
+      transition: { duration: 1.2, repeat: Infinity, repeatType: 'reverse' as const, ease: 'easeOut' }
     },
     bounce: {
-      animate: { y: [-15, 0, -15] },
+      initial: { y: 0, scaleY: 1 },
+      animate: { y: [-20, 0, -10, 0, -5, 0], scaleY: [1, 0.9, 1, 0.95, 1, 1] },
+      transition: { duration: 2, repeat: Infinity, ease: "easeOut", times: [0, 0.4, 0.6, 0.8, 0.9, 1] }
+    },
+    pulse: {
+      initial: { scale: 1 },
+      animate: { scale: [1, 1.05, 1] },
       transition: { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+    },
+    flip: {
+      initial: { rotateY: 0 },
+      animate: { rotateY: 360 },
+      transition: { duration: 2.5, repeat: Infinity, ease: "easeInOut" }
+    },
+    float: {
+      initial: { y: 0 },
+      animate: { y: [-10, 10, -10] },
+      transition: { duration: 3, repeat: Infinity, ease: "easeInOut" }
+    },
+    wobble: {
+      initial: { rotateZ: 0 },
+      animate: { rotateZ: [0, -10, 10, -10, 10, 0] },
+      transition: { duration: 2.5, repeat: Infinity, ease: "easeInOut" }
+    },
+    slideUp: {
+      initial: { y: 50, opacity: 0 },
+      animate: { y: [50, 0, 0, 50], opacity: [0, 1, 1, 0] },
+      transition: { duration: 3, repeat: Infinity, ease: "easeInOut", times: [0, 0.3, 0.7, 1] }
+    },
+    elastic: {
+      initial: { scale: 0 },
+      animate: { scale: [0, 1.2, 0.9, 1.1, 0.95, 1] },
+      transition: { duration: 2.5, repeat: Infinity, times: [0, 0.4, 0.6, 0.8, 0.9, 1] }
     }
   };
 
-  const selectedAnimation = animationVariants[animation];
+  const selectedAnimation = (animationVariants as any)[animation] || animationVariants.none;
 
   return (
     <div 
@@ -86,7 +119,7 @@ export default function SplashPreview({
                 borderColor: 'rgba(0,0,0,0.1)'
               }}
             >
-              <Sparkles size={40 * scale} className="text-black/10" />
+              <Sparkles size={40 * scale} className="text-blue-950/10" />
             </div>
           )}
         </motion.div>

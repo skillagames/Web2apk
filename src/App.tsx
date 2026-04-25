@@ -4,6 +4,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './lib/firebase';
 import AuthScreen from './components/AuthScreen';
 import Dashboard from './components/Dashboard';
+import Projects from './components/Projects';
 import ProjectForm from './components/ProjectForm';
 import ProjectDetails from './components/ProjectDetails';
 import { Layout } from './components/Layout';
@@ -24,7 +25,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="flex bg-slate-50 min-h-screen items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-slate-900" />
       </div>
     );
   }
@@ -35,6 +36,10 @@ export default function App() {
         <Route 
           index 
           element={user ? <Dashboard user={user} /> : <Navigate to="/auth" replace />} 
+        />
+        <Route 
+          path="projects" 
+          element={user ? <Projects user={user} /> : <Navigate to="/auth" replace />} 
         />
         <Route 
           path="new" 

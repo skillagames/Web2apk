@@ -24,14 +24,14 @@ service cloud.firestore {
 
     // Project Validation
     function isValidProject(data) {
-      return data.keys().hasAll(['userId', 'appName', 'repoUrl', 'status', 'packageName', 'versionName', 'versionCode'])
+      return data.keys().hasAll(['userId', 'appName', 'repoUrl', 'status', 'packageName', 'versionName', 'versionCode', 'createdAt'])
         && data.userId == request.auth.uid
-        && data.appName is string && data.appName.size() <= 100
+        && data.appName is string && data.appName.size() <= 200
         && data.packageName is string && data.packageName.size() <= 200
         && data.versionName is string && data.versionName.size() <= 50
-        && data.versionCode is string && data.versionCode.size() <= 20
+        && data.versionCode is string && data.versionCode.size() <= 50
         && data.repoUrl is string && data.repoUrl.size() <= 500
-        && data.status is string && data.status in ['draft', 'building', 'completed', 'failed']
+        && data.status is string && data.status in ['draft', 'pending', 'building', 'completed', 'failed']
         && (
             !("permissions" in data) ||
             (data.permissions is list && data.permissions.size() <= 20 && (data.permissions.size() == 0 || data.permissions[0] is string))
@@ -42,23 +42,22 @@ service cloud.firestore {
         && ( !("doubleTapToExit" in data) || data.doubleTapToExit is bool )
         && ( !("askNotificationsOnLaunch" in data) || data.askNotificationsOnLaunch is bool )
         && ( !("dismissedFromMonitor" in data) || data.dismissedFromMonitor is bool )
-        && ( !("googleServicesJsonName" in data) || (data.googleServicesJsonName is string && data.googleServicesJsonName.size() <= 200) )
-        && ( !("splashBackgroundColor" in data) || (data.splashBackgroundColor is string && data.splashBackgroundColor.size() <= 10) )
-        && ( !("splashIconSize" in data) || data.splashIconSize is number )
-        && ( !("splashAnimation" in data) || (data.splashAnimation is string && data.splashAnimation in ['none', 'fade', 'scale', 'bounce']) )
+        && ( !("googleServicesJsonName" in data) || (data.googleServicesJsonName == null || (data.googleServicesJsonName is string && data.googleServicesJsonName.size() <= 200)) )
+        && ( !("splashBackgroundColor" in data) || (data.splashBackgroundColor == null || (data.splashBackgroundColor is string && data.splashBackgroundColor.size() <= 10)) )
+        && ( !("splashIconSize" in data) || (data.splashIconSize == null || data.splashIconSize is number) )
+        && ( !("splashAnimation" in data) || (data.splashAnimation == null || (data.splashAnimation is string && data.splashAnimation in ['none', 'fade', 'scale', 'bounce'])) )
         && data.createdAt == request.time
         && ( !("updatedAt" in data) || data.updatedAt == request.time );
     }
 
     function isValidProjectUpdate(data) {
-      return data.userId == existing().userId
-        && data.userId == request.auth.uid
-        && data.appName is string && data.appName.size() <= 100
-        && data.packageName is string && data.packageName.size() <= 200
-        && data.versionName is string && data.versionName.size() <= 50
-        && data.versionCode is string && data.versionCode.size() <= 20
-        && data.repoUrl is string && data.repoUrl.size() <= 500
-        && data.status is string && data.status in ['draft', 'building', 'completed', 'failed']
+      return ( !("userId" in data) || (data.userId == existing().userId && data.userId == request.auth.uid) )
+        && ( !("appName" in data) || (data.appName is string && data.appName.size() <= 200) )
+        && ( !("packageName" in data) || (data.packageName is string && data.packageName.size() <= 200) )
+        && ( !("versionName" in data) || (data.versionName is string && data.versionName.size() <= 50) )
+        && ( !("versionCode" in data) || (data.versionCode is string && data.versionCode.size() <= 50) )
+        && ( !("repoUrl" in data) || (data.repoUrl is string && data.repoUrl.size() <= 500) )
+        && ( !("status" in data) || (data.status is string && data.status in ['draft', 'pending', 'building', 'completed', 'failed']) )
         && (
           !("permissions" in data) ||
           (data.permissions is list && data.permissions.size() <= 20 && (data.permissions.size() == 0 || data.permissions[0] is string))
@@ -69,16 +68,16 @@ service cloud.firestore {
         && ( !("doubleTapToExit" in data) || data.doubleTapToExit is bool )
         && ( !("askNotificationsOnLaunch" in data) || data.askNotificationsOnLaunch is bool )
         && ( !("dismissedFromMonitor" in data) || data.dismissedFromMonitor is bool )
-        && ( !("googleServicesJsonName" in data) || (data.googleServicesJsonName is string && data.googleServicesJsonName.size() <= 200) )
-        && ( !("splashBackgroundColor" in data) || (data.splashBackgroundColor is string && data.splashBackgroundColor.size() <= 10) )
-        && ( !("splashIconSize" in data) || data.splashIconSize is number )
-        && ( !("splashAnimation" in data) || (data.splashAnimation is string && data.splashAnimation in ['none', 'fade', 'scale', 'bounce']) )
+        && ( !("googleServicesJsonName" in data) || (data.googleServicesJsonName == null || (data.googleServicesJsonName is string && data.googleServicesJsonName.size() <= 200)) )
+        && ( !("splashBackgroundColor" in data) || (data.splashBackgroundColor == null || (data.splashBackgroundColor is string && data.splashBackgroundColor.size() <= 10)) )
+        && ( !("splashIconSize" in data) || (data.splashIconSize == null || data.splashIconSize is number) )
+        && ( !("splashAnimation" in data) || (data.splashAnimation == null || (data.splashAnimation is string && data.splashAnimation in ['none', 'fade', 'scale', 'bounce'])) )
         && ( !("buildId" in data) || (data.buildId is string && data.buildId.size() <= 200) )
         && ( !("buildStatusDetails" in data) || (data.buildStatusDetails is string && data.buildStatusDetails.size() <= 1000) )
         && ( !("logUrl" in data) || (data.logUrl is string && data.logUrl.size() <= 1000) )
         && ( !("buildFailureReason" in data) || (data.buildFailureReason is string && data.buildFailureReason.size() <= 2000) )
-        && existing().createdAt == data.createdAt
-        && data.updatedAt == request.time;
+        && ( !("createdAt" in data) || data.createdAt == existing().createdAt )
+        && ( !("updatedAt" in data) || data.updatedAt == request.time );
     }
 
     function isValidBuild(data) {
@@ -106,37 +105,31 @@ service cloud.firestore {
         && ( !("updatedAt" in data) || data.updatedAt == request.time );
     }
 
+    function isVerified() {
+      return isSignedIn();
+    }
+
     match /projects/{projectId} {
-      allow read: if isSignedIn() && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+      allow read, list: if isSignedIn() && resource.data.userId == request.auth.uid;
       
       allow create: if isSignedIn() 
-        && isValidId(projectId)
-        && isValidProject(incoming())
-        && incoming().keys().hasAll(['userId', 'appName', 'repoUrl', 'status', 'createdAt'])
-        && incoming().keys().size() <= 25;
+        && incoming().userId == request.auth.uid
+        && isValidId(projectId);
 
       allow update: if isSignedIn() 
-        && existing().userId == request.auth.uid
-        && isValidProjectUpdate(incoming())
-        && (
-           incoming().diff(existing()).affectedKeys().hasOnly(['appName', 'repoUrl', 'permissions', 'updatedAt', 'versionName', 'versionCode', 'packageName', 'orientation', 'fullscreen', 'allowCleartext', 'doubleTapToExit', 'askNotificationsOnLaunch', 'dismissedFromMonitor', 'splashBackgroundColor', 'splashIconSize', 'splashAnimation']) ||
-           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'buildId', 'buildStatusDetails', 'logUrl', 'buildFailureReason', 'versionCode'])
-        );
+        && existing().userId == request.auth.uid;
       
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
 
       match /builds/{buildId} {
-        allow read: if isSignedIn() && existing().userId == request.auth.uid;
-        allow list: if isSignedIn() && existing().userId == request.auth.uid;
+        allow read, list: if isSignedIn() && existing().userId == request.auth.uid;
         
         allow create: if isSignedIn()
-          && isValidId(buildId)
-          && isValidBuild(incoming());
+          && incoming().userId == request.auth.uid
+          && isValidId(buildId);
         
         allow update: if isSignedIn()
-          && existing().userId == request.auth.uid
-          && isValidBuildUpdate(incoming());
+          && existing().userId == request.auth.uid;
         
         allow delete: if isSignedIn() && existing().userId == request.auth.uid;
       }

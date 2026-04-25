@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { CloudBuildClient } from "@google-cloud/cloudbuild";
 import { Storage } from "@google-cloud/storage";
 
@@ -297,17 +298,54 @@ RUN mkdir /dummy_app && cd /dummy_app \\
       const safeVersionCode = parseInt(versionCode) || 1;
       const safeVersionName = versionName || '1.0.0';
       
-      let capInitScript = `
-        npm install @capacitor/cli @capacitor/core @capacitor/android
-        npx cap init "${appName}" "${safePackageName}" --web-dir dist
-        npx cap add android
-        
-        # Update Version Code and Version Name
-        sed -i -e 's/versionCode 1/versionCode ${safeVersionCode}/g' android/app/build.gradle
-        sed -i -e 's/versionName "1.0"/versionName "${safeVersionName}"/g' android/app/build.gradle
+      const builderImage = `gcr.io/${gcpProjectId}/android-builder:v24`;
+      const buildSteps: any[] = [
+        {
+          id: 'git-clone',
+          name: 'gcr.io/cloud-builders/git',
+          args: ['clone', repoUrl, 'workspace']
+        },
+        {
+          id: 'npm-install',
+          name: builderImage,
+          dir: 'workspace',
+          entrypoint: 'bash',
+          args: ['-c', 'rm -f package-lock.json && npm install']
+        },
+        {
+          id: 'vite-build',
+          name: builderImage,
+          dir: 'workspace',
+          entrypoint: 'npm',
+          args: ['run', 'build']
+        },
+        {
+          id: 'capacitor-init',
+          name: builderImage,
+          dir: 'workspace',
+          entrypoint: 'bash',
+          args: [
+            '-c',
+            `npm install @capacitor/cli @capacitor/core @capacitor/android
+             npx cap init "${appName}" "${safePackageName}" --web-dir dist
+             npx cap add android
+             
+             # Update Version Code and Version Name
+             sed -i -e 's/versionCode 1/versionCode ${safeVersionCode}/g' android/app/build.gradle
+             sed -i -e 's/versionName "1.0"/versionName "${safeVersionName}"/g' android/app/build.gradle`
+          ]
+        }
+      ];
 
-        echo "Modifying Android Manifest for advanced features..."
-        cat << 'EOF' > modify_manifest.cjs
+      // Manifest and Theme modifications
+      buildSteps.push({
+        id: 'native-config',
+        name: builderImage,
+        dir: 'workspace',
+        entrypoint: 'bash',
+        args: [
+          '-c',
+          `cat << 'EOF' > modify_manifest.cjs
 const fs = require('fs');
 const path = require('path');
 const manifestPath = path.join('android', 'app', 'src', 'main', 'AndroidManifest.xml');
@@ -318,33 +356,34 @@ if (fs.existsSync(manifestPath)) {
   const fullscreen = process.argv[3] === 'true';
   const allowCleartext = process.argv[4] === 'true';
 
-  // Orientation
+  function setAttribute(tag, attr, value) {
+    const tagRegex = new RegExp('<' + tag + '[^>]*>', 'g');
+    const attrRegex = new RegExp(attr + '="[^"]*"');
+    content = content.replace(tagRegex, (match) => {
+      if (attrRegex.test(match)) {
+        return match.replace(attrRegex, \`\${attr}="\${value}"\`);
+      } else {
+        return match.replace('<' + tag, \`<\${tag} \${attr}="\${value}"\`);
+      }
+    });
+  }
+
   if (orientation !== 'default') {
-    content = content.replace('<activity', \`<activity android:screenOrientation="${orientation}"\`);
+    setAttribute('activity', 'android:screenOrientation', orientation);
   }
-
-  // Fullscreen / Immersive
   if (fullscreen) {
-    content = content.replace('<activity', '<activity android:theme="@style/AppTheme.NoActionBarFullscreen"');
-    
-    // Also inject styles if needed or use WindowInsetsController logic in MainActivity
-    // For now, let's just add a theme reference and we can add the theme to styles.xml
+    setAttribute('activity', 'android:theme', '@style/AppTheme.NoActionBarFullscreen');
   }
-
-  // Cleartext
   if (allowCleartext) {
-    content = content.replace('<application', '<application android:usesCleartextTraffic="true"');
+    setAttribute('application', 'android:usesCleartextTraffic', 'true');
   }
-
   fs.writeFileSync(manifestPath, content);
-  console.log('Manifest modified successfully');
 }
 EOF
-        node modify_manifest.cjs "${orientation}" "${fullscreen}" "${allowCleartext}"
+node modify_manifest.cjs "${orientation}" "${fullscreen}" "${allowCleartext}"
 
-        if [ "${fullscreen}" = "true" ]; then
-          echo "Injecting fullscreen theme into styles.xml..."
-          cat << 'EOF' > inject_styles.cjs
+if [ "${fullscreen}" = "true" ]; then
+  cat << 'EOF' > inject_styles.cjs
 const fs = require('fs');
 const path = require('path');
 const stylesPath = path.join('android', 'app', 'src', 'main', 'res', 'values', 'styles.xml');
@@ -360,21 +399,18 @@ if (fs.existsSync(stylesPath)) {
   if (!content.includes('AppTheme.NoActionBarFullscreen')) {
     content = content.replace('</resources>', fullscreenTheme + '\\n</resources>');
     fs.writeFileSync(stylesPath, content);
-    console.log('Fullscreen theme added to styles.xml');
   }
 }
 EOF
-          node inject_styles.cjs
-        fi
-      `;
-      
+  node inject_styles.cjs
+fi`
+        ]
+      });
+
+      // Plugins and Sync
       let pluginsToInstall = ['@capacitor/splash-screen'];
-      if (doubleTapToExit) {
-         pluginsToInstall.push('@capacitor/app');
-      }
-      if (googleServicesJsonBase64) {
-         pluginsToInstall.push('@capacitor/push-notifications');
-      }
+      if (doubleTapToExit) pluginsToInstall.push('@capacitor/app');
+      if (googleServicesJsonBase64) pluginsToInstall.push('@capacitor/push-notifications');
       if (permissions && permissions.length > 0) {
          if (permissions.includes('CAMERA')) pluginsToInstall.push('@capacitor/camera');
          if (permissions.includes('ACCESS_FINE_LOCATION') || permissions.includes('ACCESS_COARSE_LOCATION')) pluginsToInstall.push('@capacitor/geolocation');
@@ -382,93 +418,97 @@ EOF
          if (permissions.includes('READ_EXTERNAL_STORAGE') || permissions.includes('WRITE_EXTERNAL_STORAGE')) pluginsToInstall.push('@capacitor/filesystem');
          if (permissions.includes('POST_NOTIFICATIONS')) pluginsToInstall.push('@capacitor/local-notifications');
       }
-      
-      if (pluginsToInstall.length > 0) {
-         capInitScript += `\n        npm install ${pluginsToInstall.join(' ')}\n        npx cap sync android\n      `;
-      }
-      
-      // If we uploaded an icon, generate a signed URL and add `curl` step
+
+      buildSteps.push({
+        id: 'plugin-sync',
+        name: builderImage,
+        dir: 'workspace',
+        entrypoint: 'bash',
+        args: [
+          '-c',
+          `npm install ${pluginsToInstall.join(' ')}
+           npx cap sync android`
+        ]
+      });
+
+      // Assets (Icon & Splash)
       if (rawBase64Icon) {
-         try {
-           const iconFile = bucket.file(`builds/${projectId}/icon.png`);
-           const [url] = await iconFile.getSignedUrl({
-             version: 'v4',
-             action: 'read',
-             expires: Date.now() + 15 * 60 * 1000, 
-           });
-           capInitScript += `
-             echo "Downloading uploaded app icon..."
-             mkdir -p assets
-             curl -sS -L "${url}" -o assets/icon.png
-             npm install @capacitor/assets --save-dev > /dev/null 2>&1
-             npx @capacitor/assets generate --iconBackgroundColor '#ffffff' --splashBackgroundColor '${splashBackgroundColor || '#ffffff'}' --android > /dev/null 2>&1
-             echo "App icon and splash screen generated successfully."
-           `;
-         } catch (e) {
-             console.error("Failed to generate signed url for icon download", e);
-         }
+        try {
+          const iconFile = bucket.file(`builds/${projectId}/icon.png`);
+          const [url] = await iconFile.getSignedUrl({
+            version: 'v4',
+            action: 'read',
+            expires: Date.now() + 15 * 60 * 1000,
+          });
+          buildSteps.push({
+            id: 'asset-generation',
+            name: builderImage,
+            dir: 'workspace',
+            entrypoint: 'bash',
+            args: [
+              '-c',
+              `mkdir -p assets
+               curl -sS -L "${url}" -o assets/icon.png
+               npm install @capacitor/assets --save-dev
+               npx @capacitor/assets generate --iconBackgroundColor '#ffffff' --splashBackgroundColor '${splashBackgroundColor || '#ffffff'}' --android
+               echo "Assets generated"`
+            ]
+          });
+        } catch (e) {
+          console.error("Icon signed URL error", e);
+        }
       }
 
-       // If we uploaded google-services.json, generate a signed URL and add `curl` step
-       if (rawBase64GoogleServices) {
-         try {
-           const gsFile = bucket.file(`builds/${projectId}/google-services.json`);
-           const [gsUrl] = await gsFile.getSignedUrl({
-             version: 'v4',
-             action: 'read',
-             expires: Date.now() + 15 * 60 * 1000, 
-           });
-           capInitScript += `
-             echo "Downloading google-services.json..."
-             mkdir -p android/app
-             curl -sS -L "${gsUrl}" -o android/app/google-services.json
-             echo "Google services configuration added."
-           `;
-         } catch (e) {
-             console.error("Failed to generate signed url for google-services.json", e);
-         }
-       }
+      // Google Services
+      if (rawBase64GoogleServices) {
+        try {
+          const gsFile = bucket.file(`builds/${projectId}/google-services.json`);
+          const [gsUrl] = await gsFile.getSignedUrl({
+            version: 'v4',
+            action: 'read',
+            expires: Date.now() + 15 * 60 * 1000,
+          });
+          buildSteps.push({
+            id: 'google-services',
+            name: builderImage,
+            dir: 'workspace',
+            entrypoint: 'bash',
+            args: [
+              '-c',
+              `mkdir -p android/app
+               curl -sS -L "${gsUrl}" -o android/app/google-services.json`
+            ]
+          });
+        } catch (e) {
+          console.error("GS signed URL error", e);
+        }
+      }
 
-      
+      // Permissions and Features
       if (permissions && permissions.length > 0) {
-         let permissionsXml = '';
-         let javaPermissions: string[] = [];
-         
-         const addPermission = (perm: string) => {
-            if (perm === 'INTERNET') return; // Capacitor already includes this
-            if (!permissionsXml.includes('"android.permission.' + perm + '"')) {
-               permissionsXml += '    <uses-permission android:name="android.permission.' + perm + '" />\n';
-               if (perm !== 'INTERNET') {
-                 javaPermissions.push(`"android.permission.${perm}"`);
-               }
-            }
-         };
-         const addFeature = (feat: string, required = 'false') => {
-            if (!permissionsXml.includes('"android.hardware.' + feat + '"')) {
-               permissionsXml += '    <uses-feature android:name="android.hardware.' + feat + '" android:required="' + required + '" />\n';
-            }
-         };
-         
-         for (const p of permissions) {
-            addPermission(p);
-            
-            if (p === 'CAMERA') {
-               addFeature('camera');
-               addFeature('camera.autofocus');
-            } else if (p === 'ACCESS_FINE_LOCATION') {
-               addPermission('ACCESS_COARSE_LOCATION');
-               addFeature('location.gps');
-            } else if (p === 'RECORD_AUDIO') {
-               addPermission('MODIFY_AUDIO_SETTINGS');
-            }
-         }
-         
-         const javaPermString = javaPermissions.length > 0 ? `new String[]{${javaPermissions.join(', ')}}` : 'new String[]{}';
-         const safeJavaPermString = javaPermString.replace(/"/g, '\\"');
+        let permissionsXml = '';
+        for (const p of permissions) {
+          if (p === 'INTERNET') continue;
+          permissionsXml += `    <uses-permission android:name="android.permission.${p}" />\n`;
+          if (p === 'CAMERA') {
+            permissionsXml += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\\n';
+            permissionsXml += '    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />\\n';
+          } else if (p === 'ACCESS_FINE_LOCATION') {
+            permissionsXml += '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\\n';
+            permissionsXml += '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\\n';
+          } else if (p === 'RECORD_AUDIO') {
+            permissionsXml += '    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\\n';
+          }
+        }
 
-         capInitScript += `
-         echo "Injecting Android permissions..."
-         cat << 'EOF' > insert_permissions.cjs
+        buildSteps.push({
+          id: 'permission-injection',
+          name: builderImage,
+          dir: 'workspace',
+          entrypoint: 'bash',
+          args: [
+            '-c',
+            `cat << 'EOF' > insert_permissions.cjs
 const fs = require('fs');
 const path = require('path');
 const manifestPath = path.join('android', 'app', 'src', 'main', 'AndroidManifest.xml');
@@ -476,40 +516,36 @@ let content = fs.readFileSync(manifestPath, 'utf8');
 const permissionsXml = Buffer.from('${Buffer.from(permissionsXml).toString("base64")}', 'base64').toString('utf8');
 content = content.replace('<application', permissionsXml + '\\n    <application');
 fs.writeFileSync(manifestPath, content);
-
-const mainActivityPath = path.join('android', 'app', 'src', 'main', 'java', 'com', 'web2apk', 'app', 'MainActivity.java');
-if (fs.existsSync(mainActivityPath)) {
-  let javaContent = fs.readFileSync(mainActivityPath, 'utf8');
-  // Removed custom Java override since Capacitor handles permissions natively 
-}
 EOF
-         node insert_permissions.cjs
-         `;
+node insert_permissions.cjs`
+          ]
+        });
       }
 
+      // Native Logic (Double Tap)
       if (doubleTapToExit) {
-         capInitScript += `
-         echo "Injecting native Double Tap to Exit logic into MainActivity.java..."
-         cat << 'EOF' > inject_double_tap.cjs
+        buildSteps.push({
+          id: 'native-logic',
+          name: builderImage,
+          dir: 'workspace',
+          entrypoint: 'bash',
+          args: [
+            '-c',
+            `cat << 'EOF' > inject_double_tap.cjs
 const fs = require('fs');
 const path = require('path');
-const packageName = process.argv[2] || 'com.web2apk.app';
+const packageName = process.argv[2];
 const packagePath = packageName.replace(/\./g, path.sep);
 const mainActivityPath = path.join('android', 'app', 'src', 'main', 'java', packagePath, 'MainActivity.java');
 
 if (fs.existsSync(mainActivityPath)) {
   let content = fs.readFileSync(mainActivityPath, 'utf8');
-  
-  // Add imports
   if (!content.includes('import android.widget.Toast;')) {
     content = content.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\\nimport android.widget.Toast;');
   }
-  
-  // Add member variable and override onBackPressed
   const backButtonLogic = \`
     private long lastBackPressedTime = 0;
     private static final int BACK_PRESSED_INTERVAL = 2000;
-
     @Override
     public void onBackPressed() {
         if (this.bridge.getWebView().canGoBack()) {
@@ -522,25 +558,27 @@ if (fs.existsSync(mainActivityPath)) {
                 Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show();
             }
         }
-    }\`;
-    
-  // Insert before the last closing brace
+    \}\`;
   const lastBraceIndex = content.lastIndexOf('}');
-  if (lastBraceIndex !== -1) {
-    content = content.slice(0, lastBraceIndex) + backButtonLogic + "\\n" + content.slice(lastBraceIndex);
-    fs.writeFileSync(mainActivityPath, content);
-    console.log('Native double tap to exit injected successfully');
-  }
+  content = content.slice(0, lastBraceIndex) + backButtonLogic + "\\n" + content.slice(lastBraceIndex);
+  fs.writeFileSync(mainActivityPath, content);
 }
 EOF
-         node inject_double_tap.cjs "${safePackageName}"
-         `;
+node inject_double_tap.cjs "${safePackageName}"`
+          ]
+        });
       }
 
+      // Notifications on Launch
       if (askNotificationsOnLaunch) {
-         capInitScript += `
-         echo "Injecting notification permission request on launch..."
-         cat << 'EOF' > inject_notifs.cjs
+        buildSteps.push({
+          id: 'notification-setup',
+          name: builderImage,
+          dir: 'workspace',
+          entrypoint: 'bash',
+          args: [
+            '-c',
+            `cat << 'EOF' > inject_notifs.cjs
 const fs = require('fs');
 const path = require('path');
 const indexPath = path.join('dist', 'index.html');
@@ -549,44 +587,41 @@ if (fs.existsSync(indexPath)) {
   const scriptInject = \`
   <script type="module">
     import { PushNotifications } from 'https://cdn.jsdelivr.net/npm/@capacitor/push-notifications@latest/dist/esm/index.js';
-    
     async function requestPermissions() {
       try {
         let permStatus = await PushNotifications.checkPermissions();
-        if (permStatus.receive === 'prompt') {
-          permStatus = await PushNotifications.requestPermissions();
-        }
-        if (permStatus.receive === 'granted') {
-          await PushNotifications.register();
-        }
+        if (permStatus.receive === 'prompt') permStatus = await PushNotifications.requestPermissions();
+        if (permStatus.receive === 'granted') await PushNotifications.register();
       } catch (e) {
-        console.warn('Push notification registration failed or browser environment:', e);
+        console.warn('Push fail:', e);
       }
     }
-    
-    window.addEventListener('load', () => {
-      setTimeout(requestPermissions, 1000); // Small delay to ensure everything is ready
-    });
+    window.addEventListener('load', () => setTimeout(requestPermissions, 1000));
   </script>\`;
   content = content.replace('</body>', scriptInject + '\\n</body>');
   fs.writeFileSync(indexPath, content);
-  console.log('Notification permission script injected');
 }
 EOF
-         node inject_notifs.cjs
-         `;
+node inject_notifs.cjs`
+          ]
+        });
       }
-      
-      capInitScript += `
-        sed -i -e "s/minSdkVersion = 23/minSdkVersion = 24/g" android/variables.gradle
-        
-        # Add Firebase Google Services classpath and plugin
-        sed -i -e "s/dependencies {/dependencies {\\n        classpath 'com.google.gms:google-services:4.4.1'/g" android/build.gradle
-        echo "apply plugin: 'com.google.gms.google-services'" >> android/app/build.gradle
-        echo "allprojects { configurations.all { resolutionStrategy { force 'androidx.core:core:1.15.0'; force 'androidx.core:core-ktx:1.15.0'; exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'; exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8' } } }" >> android/build.gradle
-        
-        # Configure SplashScreen
-        cat << 'EOF' > configure_splash.cjs
+
+      // Final Gradle Setup and APK Build
+      buildSteps.push({
+        id: 'gradle-config',
+        name: builderImage,
+        dir: 'workspace',
+        entrypoint: 'bash',
+        args: [
+          '-c',
+          `sed -i -e "s/minSdkVersion = 23/minSdkVersion = 24/g" android/variables.gradle
+           sed -i -e "s/dependencies {/dependencies {\\n        classpath 'com.google.gms:google-services:4.4.1'/g" android/build.gradle
+           echo "apply plugin: 'com.google.gms.google-services'" >> android/app/build.gradle
+           echo "allprojects { configurations.all { resolutionStrategy { force 'androidx.core:core:1.15.0'; force 'androidx.core:core-ktx:1.15.0'; exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'; exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8' } } }" >> android/build.gradle
+           
+           # Configure SplashScreen
+           cat << 'EOF' > configure_splash.cjs
 const fs = require('fs');
 const configPath = 'capacitor.config.json';
 if (fs.existsSync(configPath)) {
@@ -602,57 +637,22 @@ if (fs.existsSync(configPath)) {
     splashImmersive: true
   };
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-  console.log('SplashScreen configured in capacitor.config.json');
 }
 EOF
-        node configure_splash.cjs "${splashBackgroundColor || "#ffffff"}"
-      `;
-      
-      // The build steps to checkout, build web, run capacitor, and build android
+           node configure_splash.cjs "${splashBackgroundColor || "#ffffff"}"`
+        ]
+      });
+
+      buildSteps.push({
+        id: 'apk-compilation',
+        name: builderImage,
+        dir: 'workspace/android',
+        entrypoint: 'bash',
+        args: ['-c', './gradlew assembleDebug --no-daemon']
+      });
+
       const build = {
-        steps: [
-          // 1. Clone the repository
-          {
-            name: 'gcr.io/cloud-builders/git',
-            args: ['clone', repoUrl, 'workspace']
-          },
-          // 2. Install dependencies & build
-          {
-            name: `gcr.io/${gcpProjectId}/android-builder:v24`,
-            dir: 'workspace',
-            entrypoint: 'bash',
-            args: [
-              '-c',
-              'rm -f package-lock.json && npm install'
-            ]
-          },
-          {
-            name: `gcr.io/${gcpProjectId}/android-builder:v24`,
-            dir: 'workspace',
-            entrypoint: 'npm',
-            args: ['run', 'build']
-          },
-          // 3. Initialize capacitor and add android
-          {
-            name: `gcr.io/${gcpProjectId}/android-builder:v24`,
-            dir: 'workspace',
-            entrypoint: 'bash',
-            args: [
-              '-c',
-              capInitScript
-            ]
-          },
-           // 4. Build APK using Android SDK
-          {
-            name: `gcr.io/${gcpProjectId}/android-builder:v24`,
-            dir: 'workspace/android',
-            entrypoint: 'bash',
-            args: [
-              '-c', 
-              './gradlew assembleDebug --no-daemon'
-            ]
-          }
-        ],
+        steps: buildSteps,
         artifacts: {
           objects: {
             location: `gs://${storageBucketName}/builds/${projectId}/`,
@@ -690,19 +690,84 @@ EOF
          authOptions.keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS;
       }
       const cb = new CloudBuildClient(authOptions);
+      const storage = new Storage(authOptions);
       let gcpProjectId = process.env.GCP_PROJECT_ID;
       if (!gcpProjectId) gcpProjectId = await cb.getProjectId();
 
+      const storageBucketName = process.env.GCP_STORAGE_BUCKET || `${gcpProjectId}-apk-builds`;
+      const projectId = req.query.projectId as string;
+
+      const buildId = req.params.buildId;
       const [build] = await cb.getBuild({
         projectId: gcpProjectId,
-        id: req.params.buildId
+        id: buildId
       });
+
+      let downloadUrl = null;
+      if (build.status === 'SUCCESS' && projectId) {
+        const bucket = storage.bucket(storageBucketName);
+        const apkFile = bucket.file(`builds/${projectId}/app-debug.apk`);
+        const [url] = await apkFile.getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + 60 * 60 * 1000, // 1 hour
+        });
+        downloadUrl = url;
+      }
+
+      const terminalStatuses: string[] = ['SUCCESS', 'FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED'];
+      if (projectId && build.status && terminalStatuses.includes(String(build.status))) {
+        try {
+          const { getFirestore, doc, getDoc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+          const { initializeApp, getApps } = await import('firebase/app');
+          const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf8'));
+          
+          if (getApps().length === 0) initializeApp(firebaseConfig);
+          const db = getFirestore();
+          
+          const projectRef = doc(db, 'projects', projectId);
+          const projectSnap = await getDoc(projectRef);
+          
+          if (projectSnap.exists()) {
+            const projectData = projectSnap.data();
+            // Critical check: only update if high-level status is still 'building'
+            if (projectData.buildId === buildId && projectData.status === 'building') {
+              const nextStatus = build.status === 'SUCCESS' ? 'completed' : 'failed';
+              const updateData: any = {
+                status: nextStatus,
+                buildStatusDetails: build.status,
+                updatedAt: serverTimestamp()
+              };
+              if (downloadUrl) updateData.downloadUrl = downloadUrl;
+              if (build.failureInfo) {
+                let reason = build.failureInfo.detail || build.failureInfo.type || 'Build failed';
+                if (typeof reason !== 'string') reason = JSON.stringify(reason);
+                updateData.buildFailureReason = reason.substring(0, 1900);
+              }
+              await updateDoc(projectRef, updateData);
+
+              const buildRef = doc(db, 'projects', projectId, 'builds', buildId);
+              await updateDoc(buildRef, {
+                status: nextStatus,
+                downloadUrl: downloadUrl || null,
+                logUrl: build.logUrl || null,
+                updatedAt: serverTimestamp(),
+                buildFailureReason: updateData.buildFailureReason || ''
+              });
+              console.log(`[Backend] Synced terminal build state: ${build.status}`);
+            }
+          }
+        } catch (dbError) {
+          console.error('[Backend] DB sync failed:', dbError);
+        }
+      }
 
       res.json({ 
         status: build.status,
         logUrl: build.logUrl,
-        steps: build.steps?.map(s => ({ name: s.name, status: s.status })) || [],
-        failureInfo: build.failureInfo || build.statusDetail
+        steps: build.steps?.map(s => ({ name: s.id || s.name, status: s.status })) || [],
+        failureInfo: build.failureInfo || build.statusDetail,
+        downloadUrl
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

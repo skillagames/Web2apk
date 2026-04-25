@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, Clock, CheckCircle2, AlertCircle, FileCode2, 
   Trash2, Download, Rocket, Loader2, Calendar, 
-  ChevronRight, RefreshCw, Hash, LogOut
+  ChevronRight, RefreshCw, Hash, LogOut, Package
 } from 'lucide-react';
 
 interface Build {
@@ -18,6 +18,7 @@ interface Build {
   versionName: string;
   versionCode: string;
   logUrl?: string;
+  downloadUrl?: string;
   createdAt: any;
 }
 
@@ -36,6 +37,15 @@ interface Project {
   fullscreen: boolean;
   allowCleartext: boolean;
   userId: string;
+  appIconUrl?: string;
+  appIconBase64?: string;
+  googleServicesJsonName?: string;
+  splashBackgroundColor?: string | null;
+  splashIconSize?: number | null;
+  splashAnimation?: string | null;
+  buildId?: string;
+  buildStatusDetails?: string;
+  downloadUrl?: string;
 }
 
 interface ProjectDetailsProps {
@@ -48,7 +58,6 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [builds, setBuilds] = useState<Build[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rebuilding, setRebuilding] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -85,130 +94,18 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
       handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/builds`);
     });
 
-    // Polling for active builds
-    const pollInterval = setInterval(async () => {
-      const activeBuilds = builds.filter(b => b.status === 'building' || b.status === 'QUEUED');
-      if (activeBuilds.length === 0 && project?.status !== 'building') return;
-
-      // If project status is building, we should poll the project's buildId
-      const bIdToPoll = project?.buildId || (activeBuilds.length > 0 ? activeBuilds[0].id : null);
-      if (!bIdToPoll) return;
-
-      try {
-        const res = await fetch(`/api/build/${bIdToPoll}`);
-        if (res.ok) {
-          const data = await res.json();
-          const newStatus = data.status === 'SUCCESS' ? 'completed' : 
-                           (data.status === 'FAILURE' || data.status === 'CANCELLED' || data.status === 'TIMEOUT') ? 'failed' : 
-                           'building';
-          
-          if (newStatus !== 'building') {
-            // Update the build doc in subcollection
-            await setDoc(doc(db, 'projects', projectId, 'builds', bIdToPoll), {
-              status: newStatus,
-              buildFailureReason: data.failureInfo || '',
-              logUrl: data.logUrl,
-              updatedAt: serverTimestamp()
-            }, { merge: true });
-
-            // Also update main project if this was the latest build
-            if (project?.buildId === bIdToPoll) {
-              await setDoc(doc(db, 'projects', projectId), {
-                status: newStatus,
-                buildStatusDetails: data.status,
-                updatedAt: serverTimestamp()
-              }, { merge: true });
-            }
-          } else {
-             // Just update the status details for the progress bar
-             if (project?.buildId === bIdToPoll && project.buildStatusDetails !== data.status) {
-                await setDoc(doc(db, 'projects', projectId), {
-                   buildStatusDetails: data.status,
-                   updatedAt: serverTimestamp()
-                }, { merge: true });
-             }
-          }
-        }
-      } catch (err) {
-        console.error('Polling error:', err);
-      }
-    }, 5000);
-
+    // Polling for active builds is now handled globally by ActiveBuildMonitor
+    // to prevent redundant Firestore writes and save quota.
+    
     return () => {
       unsubProject();
       unsubBuilds();
-      clearInterval(pollInterval);
     };
   }, [projectId, navigate, project?.buildId, builds]);
 
-  const handleRebuild = async () => {
-    if (!project || rebuilding) return;
-    setRebuilding(true);
-
-    try {
-      // Auto-increment version code
-      const nextVersionCode = (parseInt(project.versionCode) + 1).toString();
-      
-      // Update project with next version code
-      await setDoc(doc(db, 'projects', project.id), {
-        versionCode: nextVersionCode,
-        status: 'building',
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      // Trigger build
-      const res = await fetch('/api/build', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: project.id,
-          repoUrl: project.repoUrl,
-          appName: project.appName,
-          packageName: project.packageName,
-          versionName: project.versionName,
-          versionCode: nextVersionCode,
-          orientation: project.orientation,
-          fullscreen: project.fullscreen,
-          allowCleartext: project.allowCleartext,
-          permissions: project.permissions,
-          doubleTapToExit: project.doubleTapToExit,
-          askNotificationsOnLaunch: project.askNotificationsOnLaunch,
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to start build');
-      }
-
-      if (data.success && data.buildId) {
-        const bId = data.buildId;
-        // Update project with buildId
-        await setDoc(doc(db, 'projects', project.id), {
-          buildId: bId,
-          versionCode: nextVersionCode,
-          status: 'building',
-          buildStatusDetails: 'QUEUED',
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-
-        // Create record in builds subcollection
-        const buildDocRef = doc(collection(db, 'projects', project.id, 'builds'), bId);
-        await setDoc(buildDocRef, {
-          id: bId,
-          userId: user.uid,
-          status: 'building',
-          versionName: project.versionName,
-          versionCode: nextVersionCode,
-          createdAt: serverTimestamp()
-        });
-      }
-      
-    } catch (err: any) {
-      alert(`Rebuild failed: ${err.message}`);
-    } finally {
-      setRebuilding(false);
-    }
+  const handleRebuild = () => {
+    if (!project) return;
+    navigate('/new', { state: { project } });
   };
 
   const handleDelete = async () => {
@@ -229,7 +126,8 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
 
       // 2. Clear builds subcollection
       const buildsRef = collection(db, 'projects', projectId, 'builds');
-      const buildsSnap = await getDocs(buildsRef);
+      const q = query(buildsRef, where('userId', '==', user.uid));
+      const buildsSnap = await getDocs(q);
       for (const buildDoc of buildsSnap.docs) {
         await deleteDoc(buildDoc.ref);
       }
@@ -270,8 +168,8 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-        <p className="text-gray-500 font-medium italic">Loading project details...</p>
+        <Loader2 className="w-8 h-8 text-slate-900 animate-spin" />
+        <p className="text-slate-500 font-medium italic">Loading project details...</p>
       </div>
     );
   }
@@ -279,167 +177,277 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
   if (!project) return null;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div className="space-y-4">
-          <Link 
-            to="/" 
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-gray-900 transition tracking-widest uppercase bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm"
-          >
-            <ArrowLeft size={14} /> Dashboard
-          </Link>
+      <div className="sticky top-[72px] z-30 bg-slate-50/90 backdrop-blur-md py-3 md:py-4 px-2 sm:px-4 border-b border-slate-200/80 mb-8 flex items-center justify-between -mx-2 sm:-mx-4">
+        <div className="min-w-0 flex items-center gap-4">
+          {project.appIconBase64 ? (
+            <img src={project.appIconBase64} alt="App Icon" className="w-12 h-12 rounded-2xl shadow-md border border-slate-200/60 object-cover shrink-0" />
+          ) : project.appIconUrl ? (
+            <img src={project.appIconUrl} alt="App Icon" className="w-12 h-12 rounded-2xl shadow-md border border-slate-200/60 object-cover shrink-0" />
+          ) : (
+            <div className="relative w-12 h-12 rounded-2xl bg-gradient-to-b from-slate-800 to-blue-950 shadow-md shadow-slate-900/10 border border-slate-900/50 flex items-center justify-center shrink-0 overflow-hidden text-white">
+              <div className="absolute -bottom-4 w-[150%] h-8 bg-blue-500/50 blur-md rounded-full"></div>
+              <Package size={24} strokeWidth={2.5} className="relative z-10 drop-shadow-sm" />
+            </div>
+          )}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 tracking-tight leading-none mb-0.5">
               {project.appName}
             </h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 opacity-70">
-              {project.packageName}
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+              {project.packageName ? `${project.packageName}${project.versionName ? ` v${project.versionName}` : ''}` : 'App Details'}
             </p>
           </div>
         </div>
+      </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all border border-transparent hover:border-red-100"
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-3 px-2 sm:px-4 mt-6 mb-8 max-w-lg mx-auto">
+        <button
+          onClick={handleRebuild}
+          disabled={project.status === 'building'}
+          className="w-full inline-flex items-center justify-center gap-2 bg-blue-950 hover:bg-black text-white px-6 py-3.5 rounded-2xl font-bold transition shadow-xl shadow-blue-950/10 active:scale-95 disabled:opacity-50 text-[11px] uppercase tracking-widest"
+        >
+          {project.status === 'building' ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <RefreshCw size={16} />
+          )}
+          Build New Version
+        </button>
+        {project.status === 'completed' && project.downloadUrl && (
+          <a
+            href={project.downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-2xl font-bold transition shadow-xl shadow-emerald-500/20 active:scale-95 text-[11px] uppercase tracking-widest"
           >
-            <Trash2 size={20} />
-          </button>
-          <button
-            onClick={handleRebuild}
-            disabled={rebuilding || project.status === 'building'}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold transition shadow-lg shadow-blue-600/20 active:scale-95 disabled:opacity-50"
-          >
-            {rebuilding || project.status === 'building' ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <RefreshCw size={18} />
-            )}
-            Build New Version
-          </button>
-        </div>
+            <Download size={16} />
+            Download APK
+          </a>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Stats & Config */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-6">
+          <div className="bg-white p-6 sm:p-8 rounded-[40px] shadow-[0_8px_40px_-10px_rgba(0,0,0,0.04)] border border-slate-200/60 transition-all space-y-8">
             <div>
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Project Configuration</h3>
+              <div className="mb-6">
+                 <h2 className="text-lg font-display font-bold text-slate-900 tracking-tight">App Configuration</h2>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-70">Core settings & native config</p>
+              </div>
+
               <div className="space-y-4">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Repository</span>
-                  <span className="font-medium text-gray-900 truncate max-w-[120px]">{project.repoUrl.split('/').pop()}</span>
+                <div className="space-y-1.5 flex flex-col">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Repository</label>
+                  <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                    <span className="font-bold text-slate-900 text-xs truncate">{project.repoUrl.split('/').pop()}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Current Version</span>
-                  <span className="font-mono text-blue-600 font-bold">v{project.versionName} ({project.versionCode})</span>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Version</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="font-mono text-slate-900 font-bold text-[11px] truncate">v{project.versionName} ({project.versionCode})</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Orientation</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs truncate">{project.orientation}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Orientation</span>
-                  <span className="capitalize font-medium text-gray-900">{project.orientation}</span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Fullscreen</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs">{project.fullscreen ? 'Yes' : 'No'}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Cleartext</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs">{project.allowCleartext ? 'Allowed' : 'Blocked'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Double Tap Exit</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs">{project.doubleTapToExit ? 'Yes' : 'No'}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Req. Push</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs">{project.askNotificationsOnLaunch ? 'Launch' : 'Off'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Custom Splash</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs">{project.splashBackgroundColor ? 'Enabled' : 'No'}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">FCM Config</label>
+                    <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                       <span className="capitalize font-bold text-slate-900 text-xs">{project.googleServicesJsonName ? 'Active' : 'Missing'}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="pt-6 border-t border-gray-100">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Enabled Permissions</h3>
+            <div className="pt-6 border-t border-slate-100/60">
+               <div className="mb-4">
+                  <h2 className="text-[15px] font-display font-bold text-slate-900 tracking-tight">Enabled Permissions</h2>
+               </div>
               <div className="flex flex-wrap gap-2">
                 {project.permissions.map(p => (
-                  <span key={p} className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg font-mono text-[10px] text-gray-600">{p}</span>
+                  <span key={p} className="px-3 py-1.5 bg-slate-50 border border-slate-200/60 rounded-xl font-mono text-[10px] font-bold text-slate-600 shadow-sm">{p}</span>
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="bg-white p-6 sm:p-8 rounded-[40px] shadow-[0_8px_40px_-10px_rgba(0,0,0,0.04)] border border-red-100/80 transition-all space-y-6 relative overflow-hidden group">
+            <div className="absolute inset-0 bg-red-50/30 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+            <div className="relative z-10">
+               <h2 className="text-[15px] font-display font-bold text-red-600 tracking-tight flex items-center gap-2">
+                 <AlertCircle size={16} /> 
+                 Danger Zone
+               </h2>
+               <p className="text-[10px] font-bold text-slate-400 mt-1.5 leading-relaxed">Permanently delete this application, its entire build history, and all associated configurations. This action cannot be undone.</p>
+            </div>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="relative z-10 w-full inline-flex items-center justify-center gap-2 bg-white text-red-600 hover:bg-red-600 hover:text-white px-6 py-3.5 rounded-2xl font-bold transition-all shadow-sm hover:shadow-xl hover:shadow-red-600/20 active:scale-95 text-[11px] uppercase tracking-widest border border-red-200 hover:border-red-600"
+            >
+              <Trash2 size={16} />
+              Delete App
+            </button>
           </div>
         </div>
 
         {/* Right Column: Build History */}
         <div className="lg:col-span-2">
-          <div className="mb-6">
-            <h2 className="text-lg font-bold text-gray-900 tracking-tight">Build History</h2>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 opacity-70">Audit trail of {builds.length} total builds</p>
-          </div>
-          
-          <div className="space-y-4">
-            {builds.length === 0 && project.status !== 'building' ? (
-              <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-3xl p-12 text-center">
-                <Rocket className="mx-auto text-gray-300 mb-4" size={40} />
-                <p className="text-gray-500 font-medium">No builds found. Start your first build!</p>
-              </div>
-            ) : (
-              <>
-                {/* Current Active Build if any */}
-                {(project.status === 'building' || (builds[0]?.status === 'building')) && (
-                  <div className="bg-blue-50 border border-blue-200 p-5 rounded-3xl animate-pulse flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white">
-                        <Clock size={20} />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-blue-900 text-sm">Versioning v{project.versionName} ({project.versionCode})</h4>
-                        <p className="text-xs text-blue-700 font-medium">Current Build in Progress...</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {builds.map((build, index) => (
-                  <motion.div 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    key={build.id} 
-                    className="bg-white p-5 rounded-3xl border border-gray-200 shadow-[0_2px_8px_-4px_rgba(0,0,0,0.05)] hover:border-gray-300 transition-all group"
-                  >
-                    <div className="flex items-center justify-between">
+          <div className="bg-white p-6 sm:p-8 rounded-[40px] shadow-[0_8px_40px_-10px_rgba(0,0,0,0.04)] border border-slate-200/60 transition-all min-h-full">
+            <div className="mb-6">
+              <h2 className="text-lg font-display font-bold text-slate-900 tracking-tight">Build History</h2>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-70">Audit trail of {builds.length} total builds</p>
+            </div>
+            
+            <div className="space-y-4">
+              {builds.length === 0 && project.status !== 'building' ? (
+                <div className="bg-slate-50 border-2 border-dashed border-slate-200/60 rounded-[32px] p-12 text-center">
+                  <Rocket className="mx-auto text-slate-300 mb-4" size={40} />
+                  <p className="text-slate-500 font-bold text-sm">No builds found. Start your first build!</p>
+                </div>
+              ) : (
+                <>
+                  {/* Current Active Build if any - Only show pulse if the high-level project says building but the subcollection doc hasn't appeared yet */}
+                  {project.status === 'building' && !builds.some(b => b.id === project.buildId) && (
+                    <div className="bg-blue-50/50 border border-blue-200/50 p-5 rounded-[24px] animate-pulse flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-colors ${
-                          build.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : 
-                          build.status === 'failed' ? 'bg-red-50 text-red-600' : 
-                          'bg-blue-50 text-blue-600'
-                        }`}>
-                          {build.status === 'completed' ? <CheckCircle2 size={20} /> : 
-                           build.status === 'failed' ? <AlertCircle size={20} /> : 
-                           <Clock size={20} className="animate-spin" />}
+                        <div className="w-12 h-12 rounded-2xl bg-blue-600 shadow-lg shadow-blue-600/20 flex items-center justify-center text-white">
+                          <Loader2 size={24} className="animate-spin" />
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-gray-900 text-sm">v{build.versionName}</h4>
-                            <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">CODE_{build.versionCode}</span>
-                          </div>
-                          <p className="text-[10px] text-gray-500 font-medium flex items-center gap-1 mt-0.5">
-                            <Calendar size={10} /> {build.createdAt?.toMillis ? new Date(build.createdAt.toMillis()).toLocaleString() : 'Just now'}
-                          </p>
+                          <h4 className="font-bold text-slate-900 text-sm">Versioning v{project.versionName} ({project.versionCode})</h4>
+                          <p className="text-[11px] font-bold tracking-widest uppercase text-blue-800 mt-0.5">Initializing Build Environment...</p>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-3">
-                        {build.status === 'completed' && (
-                          <button 
-                            onClick={() => downloadApk(build)}
-                            className="bg-gray-900 hover:bg-gray-800 text-white p-2.5 rounded-xl transition shadow-xl shadow-gray-900/10 active:scale-95 flex items-center gap-2 px-4"
-                          >
-                            <Download size={16} />
-                            <span className="text-xs font-bold">APK</span>
-                          </button>
-                        )}
-                        {build.status === 'failed' && (
-                           <div className="text-right">
-                              <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider block">Build Failed</span>
-                              {build.buildFailureReason && (
-                                <span className="text-[10px] text-gray-400 truncate max-w-[150px] block" title={build.buildFailureReason}>
-                                  {build.buildFailureReason}
-                                </span>
-                              )}
-                           </div>
-                        )}
-                      </div>
                     </div>
-                  </motion.div>
-                ))}
-              </>
-            )}
+                  )}
+
+                  {builds.map((build, index) => (
+                    <motion.div 
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      key={build.id} 
+                      className="bg-white p-5 rounded-[24px] border border-slate-200/60 shadow-sm hover:shadow-lg hover:shadow-slate-200/30 hover:border-slate-300 transition-all group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm ${
+                            build.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 
+                            build.status === 'failed' ? 'bg-red-50 text-red-600 border border-red-100' : 
+                            'bg-blue-50 text-blue-600 border border-blue-100'
+                          }`}>
+                            {build.status === 'completed' ? <CheckCircle2 size={20} /> : 
+                             build.status === 'failed' ? <AlertCircle size={20} /> : 
+                             (project.status === 'building' && build.id === project.buildId) ? <Loader2 size={20} className="animate-spin" /> : <Clock size={20} />}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-slate-900 text-sm">v{build.versionName}</h4>
+                              <span className="text-[10px] font-mono text-slate-500 bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-lg flex items-center gap-1 font-bold">
+                                <Hash size={8} /> {build.versionCode}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1.5 mt-0.5 uppercase tracking-widest">
+                              <Calendar size={10} /> {build.createdAt?.toMillis ? new Date(build.createdAt.toMillis()).toLocaleString() : 'Just now'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {build.status === 'completed' && (
+                            <a 
+                              href={build.downloadUrl || '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => {
+                                if (!build.downloadUrl) {
+                                  e.preventDefault();
+                                  downloadApk(build);
+                                }
+                              }}
+                              className="bg-blue-950 hover:bg-black text-white p-2.5 rounded-xl transition shadow-xl shadow-blue-950/10 active:scale-95 flex items-center gap-2 px-4 group/btn"
+                            >
+                              <Download size={16} className="transition-transform group-hover/btn:-translate-y-0.5" />
+                              <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">APK</span>
+                            </a>
+                          )}
+                          {build.logUrl && (
+                            <a 
+                              href={build.logUrl} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2.5 rounded-xl border border-slate-200 hover:border-slate-300 transition-all shadow-sm active:scale-95 flex items-center gap-2 group/btn"
+                              title="View Build Logs"
+                            >
+                              <FileCode2 size={16} className="transition-transform group-hover/btn:-translate-y-0.5" />
+                            </a>
+                          )}
+                          {build.status === 'failed' && (
+                             <div className="text-right">
+                                <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider block">Build Failed</span>
+                                {build.buildFailureReason && (
+                                  <span className="text-[10px] text-slate-400 truncate max-w-[150px] block" title={build.buildFailureReason}>
+                                    {build.buildFailureReason}
+                                  </span>
+                                )}
+                             </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -447,24 +455,24 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {showDeleteConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100"
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-slate-100"
             >
               <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mb-6">
                 <Trash2 size={32} />
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Delete App?</h3>
-              <p className="text-gray-500 text-sm leading-relaxed mb-8">
-                This will permanently delete <span className="font-bold text-gray-900">{project.appName}</span> and all its build history and hosted APK files. This action cannot be undone.
+              <h3 className="text-2xl font-bold text-slate-900 mb-2 tracking-tight">Delete App?</h3>
+              <p className="text-slate-500 text-sm leading-relaxed mb-8">
+                This will permanently delete <span className="font-bold text-slate-900">{project.appName}</span> and all its build history and hosted APK files. This action cannot be undone.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="py-3 px-4 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition"
+                  className="py-3 px-4 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition border border-transparent hover:border-slate-200/60"
                 >
                   Cancel
                 </button>

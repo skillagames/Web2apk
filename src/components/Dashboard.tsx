@@ -3,7 +3,7 @@ import { User } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Link, useNavigate } from 'react-router';
-import { Plus, CheckCircle2, Clock, AlertCircle, FileCode2, Trash2, Copy, Check, Loader2, ChevronRight, ChevronDown, ChevronUp, Settings, Terminal, Shield, Package } from 'lucide-react';
+import { Plus, CheckCircle2, Clock, AlertCircle, FileCode2, Trash2, Copy, Check, Loader2, ChevronRight, ChevronDown, ChevronUp, Settings, Terminal, Shield, Package, Folder, LayoutDashboard } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface DashboardProps {
@@ -18,6 +18,11 @@ interface Project {
   buildId?: string;
   buildStatusDetails?: string;
   logUrl?: string;
+  appIconUrl?: string;
+  appIconBase64?: string;
+  packageName?: string;
+  versionName?: string;
+  versionCode?: string;
   createdAt: any;
 }
 
@@ -212,58 +217,8 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [viewLogsId, projects]);
 
   useEffect(() => {
-    // Poll building projects
-    const buildingProjects = projects.filter(p => p.status === 'building' && p.buildId);
-    if (buildingProjects.length === 0) return;
-
-    const interval = setInterval(() => {
-      buildingProjects.forEach(async (project) => {
-        try {
-          const res = await fetch(`/api/build/${project.buildId}`);
-          const data = await res.json();
-          if (res.ok && data.status) {
-            let nextStatus = project.status;
-            if (data.status === 'SUCCESS') nextStatus = 'completed';
-            else if (['FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED'].includes(data.status)) nextStatus = 'failed';
-            
-            if (nextStatus !== project.status || data.status !== project.buildStatusDetails) {
-              const projectRef = doc(db, 'projects', project.id);
-              const updateData: any = { 
-                status: nextStatus,
-                buildStatusDetails: data.status,
-                updatedAt: serverTimestamp()
-              };
-              if (nextStatus === 'failed' && data.failureInfo) {
-                let reason = data.failureInfo?.detail || data.failureInfo?.type || data.failureInfo;
-                if (typeof reason !== 'string') reason = typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
-                if (reason.length > 1900) reason = reason.substring(0, 1900) + '...';
-                updateData.buildFailureReason = reason;
-              }
-              if (data.logUrl) updateData.logUrl = data.logUrl;
-              await setDoc(projectRef, updateData, { merge: true });
-
-              // Also sync to builds subcollection if buildId exists
-              if (project.buildId) {
-                const buildRef = doc(db, 'projects', project.id, 'builds', project.buildId);
-                await setDoc(buildRef, {
-                  status: nextStatus,
-                  buildFailureReason: updateData.buildFailureReason || '',
-                  logUrl: data.logUrl || '',
-                  updatedAt: serverTimestamp()
-                }, { merge: true });
-              }
-            }
-          }
-        } catch (e: any) {
-          if (e.message !== 'Failed to fetch') {
-            console.error("Failed to poll build status", e);
-          }
-        }
-      });
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [projects]);
+    // Global polling is now handled by ActiveBuildMonitor to optimize Firebase quota
+  }, []);
 
   const handleCopyLogs = async () => {
     try {
@@ -283,7 +238,7 @@ export default function Dashboard({ user }: DashboardProps) {
         let msg = 'Building...';
         if (project.buildStatusDetails === 'QUEUED') msg = 'Queued...';
         if (project.buildStatusDetails === 'WORKING') msg = 'In Progress...';
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold uppercase tracking-tight whitespace-nowrap animate-pulse border border-indigo-100"><Clock size={12} strokeWidth={2.5}/> {msg.toUpperCase()}</span>;
+        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold uppercase tracking-tight whitespace-nowrap animate-pulse border border-blue-100"><Loader2 size={12} className="animate-spin" strokeWidth={2.5}/> {msg.toUpperCase()}</span>;
       case 'completed':
         return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold uppercase tracking-tight whitespace-nowrap border border-emerald-100/50"><CheckCircle2 size={12} strokeWidth={2.5}/> COMPLETED</span>;
       case 'failed':
@@ -311,16 +266,23 @@ export default function Dashboard({ user }: DashboardProps) {
           </div>
         )}
 
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200/80 px-4 sm:px-5">
-          <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Dashboard</h1>
+        <div className="sticky top-[72px] z-30 bg-slate-50/90 backdrop-blur-md py-3 md:py-4 px-2 sm:px-4 border-b border-slate-200/80 mb-8 flex items-center justify-between -mx-2 sm:-mx-4">
+          <div className="min-w-0 flex items-center gap-4">
+            <div className="relative w-12 h-12 rounded-2xl bg-gradient-to-b from-slate-800 to-blue-950 shadow-md shadow-slate-900/10 border border-slate-900/50 flex items-center justify-center shrink-0 overflow-hidden text-white">
+              <div className="absolute -bottom-4 w-[150%] h-8 bg-blue-500/50 blur-md rounded-full"></div>
+              <LayoutDashboard size={24} strokeWidth={2.5} className="relative z-10 drop-shadow-sm" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 tracking-tight leading-none mb-0.5">Dashboard</h1>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">System Overview</p>
+            </div>
           </div>
           
           {isCloudBuildConfigured && (
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight whitespace-nowrap">Build Engine:</span>
               {checkingBuilder ? (
-                <span className="text-[9px] font-bold text-indigo-500 uppercase flex items-center gap-1 animate-pulse whitespace-nowrap">
+                <span className="text-[9px] font-bold text-blue-500 uppercase flex items-center gap-1 animate-pulse whitespace-nowrap">
                   <Clock size={10} /> Syncing
                 </span>
               ) : builderExists ? (
@@ -329,7 +291,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 </span>
               ) : (
                 <span className="text-[9px] font-bold text-amber-500 uppercase flex items-center gap-1 whitespace-nowrap">
-                  <AlertCircle size={10} /> Action Required
+                  <AlertCircle size={10} /> Update
                 </span>
               )}
             </div>
@@ -344,28 +306,28 @@ export default function Dashboard({ user }: DashboardProps) {
           ))}
         </div>
       ) : projects.length === 0 ? (
-        <div className="text-center py-24 bg-white rounded-[48px] border-2 border-slate-100 border-dashed shadow-sm">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-slate-50 text-slate-400 mb-6 border border-slate-100 shadow-inner">
-            <FileCode2 size={32} className="stroke-[1.5px]" />
+        <div className="text-center py-12 bg-white rounded-[40px] border-2 border-slate-100 border-dashed shadow-sm">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-[20px] bg-slate-50 text-slate-400 mb-4 border border-slate-100 shadow-inner">
+            <FileCode2 size={24} className="stroke-[1.5px]" />
           </div>
-          <h2 className="text-xl font-bold text-slate-900">Start Building</h2>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 mb-8 max-w-xs mx-auto opacity-70">Convert your web app into a high-performance native Android experience</p>
+          <h2 className="text-lg font-bold text-slate-900">Start Building</h2>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 mb-6 max-w-xs mx-auto opacity-70">Convert your web app into a high-performance native Android experience</p>
           <Link 
             to="/new" 
-            className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-bold transition shadow-2xl shadow-slate-900/20 active:scale-95 text-base"
+            className="inline-flex items-center gap-2 bg-blue-950 hover:bg-black text-white px-6 py-3 rounded-2xl font-bold transition shadow-2xl shadow-blue-950/20 active:scale-95 text-sm"
           >
-            <Plus size={20} /> New Application
+            <Plus size={18} /> New Application
           </Link>
         </div>
       ) : (
         <div className="space-y-6">
           <Link 
             to="/new" 
-            className="group relative block overflow-hidden bg-white border border-slate-200/60 p-4 sm:p-5 rounded-3xl shadow-sm hover:shadow-xl hover:shadow-indigo-600/5 hover:border-indigo-200 transition-all duration-500 active:scale-[0.99]"
+            className="group relative block overflow-hidden bg-white border border-slate-200/60 p-4 sm:p-5 rounded-3xl shadow-sm hover:shadow-xl hover:shadow-slate-900/5 hover:border-slate-300 transition-all duration-500 active:scale-[0.99]"
           >
             <div className="flex items-center justify-between gap-4 relative z-10">
               <div className="flex items-center gap-4 min-w-0">
-                <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:rotate-3 transition-all duration-500 shadow-inner border border-indigo-100/50">
+                <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-900 flex items-center justify-center shrink-0 group-hover:scale-105 group-hover:rotate-3 transition-all duration-500 shadow-inner border border-slate-200/50">
                   <Plus size={20} strokeWidth={3} />
                 </div>
                 <div className="text-left min-w-0">
@@ -373,11 +335,11 @@ export default function Dashboard({ user }: DashboardProps) {
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 opacity-70 whitespace-nowrap">Start a new build</p>
                 </div>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center group-hover:bg-indigo-600 transition-all duration-500 shadow-lg shadow-slate-900/10 shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-blue-950 text-white flex items-center justify-center group-hover:bg-slate-900 transition-all duration-500 shadow-lg shadow-blue-950/10 shrink-0">
                 <Package size={18} strokeWidth={2} />
               </div>
             </div>
-            <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-24 h-24 bg-indigo-50/20 rounded-full blur-3xl group-hover:bg-indigo-100/40 transition-colors" />
+            <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-24 h-24 bg-slate-100/20 rounded-full blur-3xl group-hover:bg-slate-200/40 transition-colors" />
           </Link>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
@@ -390,24 +352,35 @@ export default function Dashboard({ user }: DashboardProps) {
             >
               <div 
                 onClick={() => navigate(`/project/${project.id}`)}
-                className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/60 shadow-sm hover:shadow-xl hover:shadow-indigo-600/5 hover:border-indigo-200 transition-all duration-500 cursor-pointer h-full flex flex-col"
+                className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/60 shadow-sm hover:shadow-xl hover:shadow-slate-900/5 hover:border-slate-300 transition-all duration-500 cursor-pointer h-full flex flex-col"
               >
-                <div className="flex justify-between items-start mb-4 gap-4">
-                   <div className="flex-1 min-w-0">
-                     <h3 className="font-bold text-sm text-slate-900 tracking-tight group-hover:text-indigo-600 transition-colors uppercase leading-tight truncate">{project.appName}</h3>
-                     <span className="text-[10px] font-mono text-slate-400 truncate block mt-1 group-hover:text-slate-500 transition-colors tracking-tight">
-                       {project.repoUrl.replace('https://github.com/', '').replace(/\/$/, '')}
-                     </span>
-                   </div>
-                   <div className="shrink-0 -mt-0.5">
-                     <StatusBadge project={project} />
-                   </div>
-                </div>
+                 <div className="flex justify-between items-start mb-4 gap-4">
+                    <div className="shrink-0">
+                      {project.appIconBase64 ? (
+                        <img src={project.appIconBase64} alt="" className="w-10 h-10 rounded-xl shadow-sm border border-slate-200/60 object-cover" />
+                      ) : project.appIconUrl ? (
+                         <img src={project.appIconUrl} alt="" className="w-10 h-10 rounded-xl shadow-sm border border-slate-200/60 object-cover" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200/50">
+                          <Package size={20} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-sm text-slate-900 tracking-tight group-hover:text-slate-900 transition-colors uppercase leading-tight truncate">{project.appName}</h3>
+                      <span className="text-[10px] font-mono text-slate-400 truncate block mt-1 group-hover:text-slate-500 transition-colors tracking-tight">
+                        {project.repoUrl.replace('https://github.com/', '').replace(/\/$/, '')}
+                      </span>
+                    </div>
+                    <div className="shrink-0 -mt-0.5">
+                      <StatusBadge project={project} />
+                    </div>
+                 </div>
 
                 {project.status === 'building' && (
                   <div className="mb-4">
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
-                      <div className={`bg-indigo-500 h-full transition-all duration-1000 ease-in-out ${project.buildStatusDetails === 'QUEUED' ? 'w-1/4' : project.buildStatusDetails === 'WORKING' ? 'w-2/3 animate-pulse' : 'w-full animate-pulse'}`}></div>
+                      <div className={`bg-blue-500 h-full transition-all duration-1000 ease-in-out ${project.buildStatusDetails === 'QUEUED' ? 'w-1/4' : project.buildStatusDetails === 'WORKING' ? 'w-2/3 animate-pulse' : 'w-full animate-pulse'}`}></div>
                     </div>
                   </div>
                 )}
@@ -418,7 +391,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       <Clock size={10} strokeWidth={3} className="text-slate-300" /> {project.createdAt?.toMillis ? new Date(project.createdAt.toMillis()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
                     </span>
                   </div>
-                  <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-500 transform group-hover:translate-x-1 transition-all">
+                  <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-100 group-hover:text-blue-500 transform group-hover:translate-x-1 transition-all">
                     <ChevronRight size={14} strokeWidth={2.5} />
                   </div>
                 </div>
@@ -480,7 +453,7 @@ export default function Dashboard({ user }: DashboardProps) {
               className="w-full flex items-center justify-between p-6 hover:bg-slate-100/50 transition-colors group"
             >
               <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${isBuildEngineOpen ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'bg-white text-slate-400 border border-slate-200 group-hover:text-amber-500 group-hover:bg-amber-50'}`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${isBuildEngineOpen ? 'bg-blue-950 text-white shadow-lg shadow-blue-950/20' : 'bg-white text-slate-400 border border-slate-200 group-hover:text-amber-500 group-hover:bg-amber-50'}`}>
                   <Terminal size={18} strokeWidth={2.5} />
                 </div>
                 <div className="text-left">
@@ -497,7 +470,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <div className="p-6 pt-0 space-y-6 animate-in slide-in-from-top-2 duration-300">
                 <div className="bg-white border border-slate-200/60 p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8 shadow-sm">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                    <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-900 flex items-center justify-center shrink-0">
                       <FileCode2 size={24} />
                     </div>
                     <div>
@@ -509,7 +482,7 @@ export default function Dashboard({ user }: DashboardProps) {
                   </div>
                   
                   {checkingBuilder ? (
-                     <div className="whitespace-nowrap px-6 py-2.5 font-mono text-[10px] font-bold text-indigo-400 flex items-center gap-2 animate-pulse bg-indigo-50/50 rounded-xl tracking-widest">
+                     <div className="whitespace-nowrap px-6 py-2.5 font-mono text-[10px] font-bold text-blue-400 flex items-center gap-2 animate-pulse bg-slate-100/50 rounded-xl tracking-widest">
                         <Clock size={14} /> CHECKING_STATUS
                      </div>
                   ) : builderExists ? (
@@ -531,7 +504,7 @@ export default function Dashboard({ user }: DashboardProps) {
                        <button 
                           onClick={handleSetupBuilder} 
                           disabled={setupBuilderLoading}
-                          className="whitespace-nowrap inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-slate-900 text-white px-6 py-3 rounded-xl font-bold transition shadow-lg shadow-indigo-600/10 text-xs disabled:opacity-50 active:scale-95"
+                          className="whitespace-nowrap inline-flex items-center justify-center gap-2 bg-blue-950 hover:bg-black text-white px-6 py-3 rounded-xl font-bold transition shadow-lg shadow-blue-950/10 text-xs disabled:opacity-50 active:scale-95"
                        >
                          {setupBuilderLoading ? <Loader2 size={16} className="animate-spin text-white/50" /> : <Plus size={16} />}
                          {setupBuilderLoading ? 'Provisioning...' : 'Provision Builder'}
@@ -555,7 +528,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Execution Logs</span>
                       <button 
                         onClick={() => setViewSetupLogs(!viewSetupLogs)}
-                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest"
+                        className="text-[10px] font-bold text-slate-900 hover:text-blue-950 uppercase tracking-widest"
                       >
                         {viewSetupLogs ? 'Hide Logs' : 'View Logs'}
                       </button>

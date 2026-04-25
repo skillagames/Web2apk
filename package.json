@@ -16,6 +16,8 @@
     "@google-cloud/storage": "^7.19.0",
     "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@uiw/color-convert": "^2.10.1",
+    "@uiw/react-color-wheel": "^2.10.1",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",

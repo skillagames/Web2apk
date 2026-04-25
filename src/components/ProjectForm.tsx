@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { User } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { motion } from 'motion/react';
-import { ArrowLeft, Rocket, AlertCircle, CheckCircle2, Loader2, Sparkles, Layout, Smartphone, X } from 'lucide-react';
+import { ArrowLeft, Rocket, AlertCircle, CheckCircle2, Loader2, Sparkles, Layout, Smartphone, X, Wrench, Bell } from 'lucide-react';
 import { Link } from 'react-router';
 import SplashScreenDialog from './SplashScreenDialog';
 import SplashPreview from './SplashPreview';
@@ -23,28 +23,32 @@ const AVAILABLE_PERMISSIONS = [
 
 export default function ProjectForm({ user }: ProjectFormProps) {
   const navigate = useNavigate();
-  const [appName, setAppName] = useState('');
-  const [packageName, setPackageName] = useState('com.web2apk.app');
-  const [versionName, setVersionName] = useState('1.0.0');
-  const [versionCode, setVersionCode] = useState('1');
-  const [orientation, setOrientation] = useState<'default' | 'portrait' | 'landscape'>('default');
-  const [fullscreen, setFullscreen] = useState(false);
-  const [allowCleartext, setAllowCleartext] = useState(false);
-  const [repoUrl, setRepoUrl] = useState('');
+  const location = useLocation();
+  const existingProject = location.state?.project;
+
+  const [appName, setAppName] = useState(existingProject?.appName || '');
+  const [packageName, setPackageName] = useState(existingProject?.packageName || '');
+  const [versionName, setVersionName] = useState(existingProject?.versionName || '1.0.0');
+  const [versionCode, setVersionCode] = useState(existingProject ? String(parseInt(existingProject.versionCode || '0') + 1) : '1');
+  const [orientation, setOrientation] = useState<'default' | 'portrait' | 'landscape'>(existingProject?.orientation || 'default');
+  const [fullscreen, setFullscreen] = useState(existingProject?.fullscreen || false);
+  const [allowCleartext, setAllowCleartext] = useState(existingProject?.allowCleartext || false);
+  const [repoUrl, setRepoUrl] = useState(existingProject?.repoUrl || '');
   const [appIconBase64, setAppIconBase64] = useState<string>('');
   const [appIconName, setAppIconName] = useState<string>('');
-  const [permissions, setPermissions] = useState<string[]>(['INTERNET']);
-  const [doubleTapToExit, setDoubleTapToExit] = useState(true);
+  const [permissions, setPermissions] = useState<string[]>(existingProject?.permissions || ['INTERNET']);
+  const [doubleTapToExit, setDoubleTapToExit] = useState(existingProject?.doubleTapToExit ?? true);
   const [googleServicesJsonBase64, setGoogleServicesJsonBase64] = useState<string>('');
-  const [googleServicesJsonName, setGoogleServicesJsonName] = useState<string>('');
-  const [askNotificationsOnLaunch, setAskNotificationsOnLaunch] = useState(false);
+  const [googleServicesJsonName, setGoogleServicesJsonName] = useState<string>(existingProject?.googleServicesJsonName || '');
+  const [askNotificationsOnLaunch, setAskNotificationsOnLaunch] = useState(existingProject?.askNotificationsOnLaunch || false);
   
-  const [enableCustomSplash, setEnableCustomSplash] = useState(false);
+  const hasCustomSplash = !!existingProject?.splashBackgroundColor;
+  const [enableCustomSplash, setEnableCustomSplash] = useState(hasCustomSplash);
   const [showSplashDesigner, setShowSplashDesigner] = useState(false);
   const [splashConfig, setSplashConfig] = useState({
-    backgroundColor: '#FFFFFF',
-    iconSize: 50,
-    animation: 'fade' as const
+    backgroundColor: existingProject?.splashBackgroundColor || '#FFFFFF',
+    iconSize: existingProject?.splashIconSize || 50,
+    animation: (existingProject?.splashAnimation as any) || 'fade' as const
   });
 
   const [isVerifyingRepo, setIsVerifyingRepo] = useState(false);
@@ -152,9 +156,9 @@ export default function ProjectForm({ user }: ProjectFormProps) {
     setLoading(true);
     
     try {
-      const newDocRef = doc(collection(db, 'projects'));
+      const docRef = existingProject ? doc(db, 'projects', existingProject.id) : doc(collection(db, 'projects'));
       
-      const payload = {
+      const payload: any = {
         userId: user.uid,
         appName,
         packageName,
@@ -169,17 +173,21 @@ export default function ProjectForm({ user }: ProjectFormProps) {
         doubleTapToExit,
         askNotificationsOnLaunch,
         googleServicesJsonName,
+        appIconBase64: appIconBase64 || existingProject?.appIconBase64 || '',
         splashBackgroundColor: enableCustomSplash ? splashConfig.backgroundColor : null,
         splashIconSize: enableCustomSplash ? splashConfig.iconSize : null,
         splashAnimation: enableCustomSplash ? splashConfig.animation : null,
-        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
       
+      if (!existingProject) {
+        payload.createdAt = serverTimestamp();
+      }
+      
       try {
-        await setDoc(newDocRef, payload);
+        await setDoc(docRef, payload, { merge: true });
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `projects/${newDocRef.id}`);
+        handleFirestoreError(err, OperationType.WRITE, `projects/${docRef.id}`);
       }
       
       // Call our backend to start Cloud Build
@@ -188,7 +196,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-             projectId: newDocRef.id,
+             projectId: docRef.id,
              repoUrl,
              appName,
              packageName,
@@ -211,7 +219,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
         const buildData = await buildRes.json();
         if (!buildRes.ok) {
            console.warn("Backend build failed, potentially missing GCP creds. Still logging in Firestore...", buildData);
-           await setDoc(newDocRef, { 
+           await setDoc(docRef, { 
              status: 'failed', 
              buildStatusDetails: buildData.error || 'Server error',
              updatedAt: serverTimestamp() 
@@ -224,14 +232,14 @@ export default function ProjectForm({ user }: ProjectFormProps) {
         // Save the build ID
         if (buildData.success && buildData.buildId) {
            const bId = buildData.buildId;
-           await setDoc(newDocRef, { 
+           await setDoc(docRef, { 
              buildId: bId,
              buildStatusDetails: 'QUEUED',
              updatedAt: serverTimestamp() 
            }, { merge: true });
 
            // Create record in builds subcollection
-           const buildDocRef = doc(collection(db, 'projects', newDocRef.id, 'builds'), bId);
+           const buildDocRef = doc(collection(db, 'projects', docRef.id, 'builds'), bId);
            await setDoc(buildDocRef, {
              id: bId,
              userId: user.uid,
@@ -243,10 +251,10 @@ export default function ProjectForm({ user }: ProjectFormProps) {
         }
 
         // Navigate back to dashboard where user can see the "Building..." state
-        navigate('/');
+        navigate(existingProject ? `/project/${existingProject.id}` : '/');
       } catch (backendErr: any) {
         console.error(backendErr);
-        await setDoc(newDocRef, { 
+        await setDoc(docRef, { 
           status: 'failed', 
           buildStatusDetails: backendErr.message || 'Network error',
           updatedAt: serverTimestamp() 
@@ -266,14 +274,21 @@ export default function ProjectForm({ user }: ProjectFormProps) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="max-w-2xl mx-auto w-full"
+      className="max-w-2xl mx-auto w-full relative"
     >
-      <div className="mb-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-indigo-600 transition mb-8 group bg-white border border-slate-200 px-4 py-2 rounded-2xl shadow-sm hover:shadow active:scale-95">
-          <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" strokeWidth={2.5} /> Back to Dashboard
-        </Link>
-        <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">Configure Build</h1>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 opacity-70">App Metadata & Native Config</p>
+      <div className="sticky top-[72px] z-30 bg-slate-50/90 backdrop-blur-md py-3 md:py-4 px-2 sm:px-4 border-b border-slate-200/80 mb-8 flex items-center justify-between -mx-2 sm:-mx-4">
+        <div className="min-w-0 flex items-center gap-4">
+          <div className="relative w-12 h-12 rounded-2xl bg-gradient-to-b from-slate-800 to-blue-950 shadow-md shadow-slate-900/10 border border-slate-900/50 flex items-center justify-center shrink-0 overflow-hidden text-white">
+            <div className="absolute -bottom-4 w-[150%] h-8 bg-blue-500/50 blur-md rounded-full"></div>
+            <Wrench size={24} strokeWidth={2.5} className="relative z-10 drop-shadow-sm" />
+          </div>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 tracking-tight leading-none mb-0.5">
+              {existingProject ? 'Update Build' : 'Configure Build'}
+            </h1>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">App Metadata & Native Config</p>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white p-8 sm:p-12 rounded-[48px] shadow-[0_8px_40px_-10px_rgba(0,0,0,0.04)] border border-slate-200/60 transition-all">
@@ -297,7 +312,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                   type="text" 
                   value={appName}
                   onChange={e => setAppName(e.target.value)}
-                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 outline-none transition-all placeholder:text-slate-400 font-bold text-slate-900 bg-slate-50/50 focus:bg-white text-sm"
+                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-slate-200/50 outline-none transition-all placeholder:text-slate-400 font-bold text-slate-900 bg-slate-50/50 focus:bg-white text-sm tracking-tight"
                   placeholder="App Title"
                   maxLength={40}
                 />
@@ -309,9 +324,12 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                   type="text" 
                   value={packageName}
                   onChange={e => setPackageName(e.target.value)}
-                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 outline-none transition-all placeholder:text-slate-400 font-mono text-[10px] bg-slate-50/50 focus:bg-white font-bold tracking-tight"
-                  placeholder="com.example.app"
+                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-slate-200/50 outline-none transition-all placeholder:text-slate-400 font-bold text-slate-900 bg-slate-50/50 focus:bg-white text-sm tracking-tight"
+                  placeholder="com.web2apk.app"
                 />
+                <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium leading-relaxed max-w-[95%] ml-1 mt-1">
+                  This uniquely identifies your app. If you use Firebase Push Notifications, this must <strong className="text-slate-800">exactly match</strong> the package name in your Firebase Console project settings.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -320,7 +338,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                   type="text" 
                   value={versionName}
                   onChange={e => setVersionName(e.target.value)}
-                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 outline-none transition-all placeholder:text-slate-400 font-bold bg-slate-50/50 focus:bg-white text-[13px]"
+                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-slate-200/50 outline-none transition-all placeholder:text-slate-400 font-bold text-slate-900 bg-slate-50/50 focus:bg-white text-sm tracking-tight"
                   placeholder="1.0.0"
                 />
               </div>
@@ -331,70 +349,16 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                   type="number" 
                   value={versionCode}
                   onChange={e => setVersionCode(e.target.value)}
-                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 outline-none transition-all placeholder:text-slate-400 font-bold bg-slate-50/50 focus:bg-white text-[13px]"
+                  className="w-full h-12 px-5 rounded-2xl border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-slate-200/50 outline-none transition-all placeholder:text-slate-400 font-bold text-slate-900 bg-slate-50/50 focus:bg-white text-sm tracking-tight"
                   placeholder="1"
                   min="1"
                 />
               </div>
 
-              <div className="space-y-1.5 md:col-span-2 pt-1 lg:col-span-2">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5">App Orientation</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['default', 'portrait', 'landscape'] as const).map((o) => (
-                    <button
-                      key={o}
-                      type="button"
-                      onClick={() => setOrientation(o)}
-                      className={`py-2.5 px-1 rounded-xl border text-[10px] font-bold capitalize transition-all overflow-hidden text-ellipsis whitespace-nowrap ${
-                        orientation === o 
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-900/10' 
-                          : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3 md:col-span-2 lg:col-span-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFullscreen(!fullscreen)}
-                    className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all group ${
-                      fullscreen ? 'border-indigo-500 bg-indigo-50/20' : 'border-slate-200 bg-slate-50/50 hover:bg-white'
-                    }`}
-                  >
-                    <div className="flex flex-col items-start text-left">
-                      <span className={`text-[12px] font-bold transition-colors ${fullscreen ? 'text-indigo-900' : 'text-slate-700'}`}>Fullscreen Mode</span>
-                    </div>
-                    <div className={`w-8 h-4.5 rounded-full relative transition-colors ${fullscreen ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                      <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${fullscreen ? 'translate-x-3.5' : ''} shadow-sm`} />
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAllowCleartext(!allowCleartext)}
-                    className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all group ${
-                      allowCleartext ? 'border-amber-500 bg-amber-50/20' : 'border-slate-200 bg-slate-50/50 hover:bg-white'
-                    }`}
-                  >
-                    <div className="flex flex-col items-start text-left">
-                      <span className={`text-[12px] font-bold transition-colors ${allowCleartext ? 'text-amber-900' : 'text-slate-700'}`}>Insecure Traffic (HTTP)</span>
-                    </div>
-                    <div className={`w-8 h-4.5 rounded-full relative transition-colors ${allowCleartext ? 'bg-amber-500' : 'bg-slate-200'}`}>
-                      <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${allowCleartext ? 'translate-x-3.5' : ''} shadow-sm`} />
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 md:col-span-2 pt-1 lg:col-span-4">
+              <div className="space-y-1.5 md:col-span-2 lg:col-span-4">
                 <div className="flex justify-between items-end mb-1.5 px-1">
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">GitHub Repository</label>
-                  {isVerifyingRepo && <span className="text-indigo-500 text-[9px] font-bold uppercase tracking-widest animate-pulse flex items-center gap-1.5"><Loader2 size={10} className="animate-spin" /> Verifying</span>}
+                  {isVerifyingRepo && <span className="text-blue-500 text-[9px] font-bold uppercase tracking-widest animate-pulse flex items-center gap-1.5"><Loader2 size={10} className="animate-spin" /> Verifying</span>}
                   {!isVerifyingRepo && repoStatus === 'valid' && <span className="text-emerald-600 text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5"><CheckCircle2 size={10}/> Valid</span>}
                   {!isVerifyingRepo && repoStatus === 'invalid' && <span className="text-red-600 text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5"><AlertCircle size={10}/> Invalid</span>}
                 </div>
@@ -403,20 +367,29 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                      type="url" 
                      value={repoUrl}
                      onChange={e => setRepoUrl(e.target.value)}
-                     className={`w-full h-12 px-5 rounded-2xl border transition-all placeholder:text-slate-400 font-mono text-xs font-bold tracking-tight ${
+                     className={`w-full h-12 px-5 pr-12 rounded-2xl border outline-none transition-all placeholder:text-slate-400 font-bold text-slate-900 bg-slate-50/50 focus:bg-white text-sm tracking-tight ${
                        repoStatus === 'invalid' 
-                         ? 'border-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-500/10 bg-red-50/50' 
-                         : 'border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 bg-slate-50/50 focus:bg-white focus:text-indigo-600'
-                     } outline-none`}
+                         ? 'border-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
+                         : 'border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-slate-200/50'
+                     }`}
                      placeholder="https://github.com/username/repo-name"
                    />
+                   {repoUrl && (
+                     <button
+                       type="button"
+                       onClick={() => setRepoUrl('')}
+                       className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 bg-white rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                     >
+                       <X size={14} strokeWidth={3} />
+                     </button>
+                   )}
                 </div>
               </div>
               
-              <div className="space-y-1.5 md:col-span-2 pt-1 lg:col-span-4">
+              <div className="space-y-1.5 md:col-span-2 lg:col-span-4">
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">App Icon</label>
                  <div className="flex items-center gap-4">
-                  <div className="flex-1 h-12 flex items-center bg-slate-50/50 border border-slate-200 rounded-2xl overflow-hidden focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-100/50 transition-all hover:bg-white group cursor-pointer shadow-sm relative">
+                  <div className="flex-1 h-12 flex items-center bg-slate-50/50 border border-slate-200 rounded-2xl overflow-hidden focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-slate-200/50 transition-all hover:bg-white group shadow-sm relative cursor-pointer">
                      <input 
                        type="file" 
                        accept="image/png, image/jpeg" 
@@ -424,17 +397,16 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                        className="absolute inset-0 opacity-0 cursor-pointer z-10"
                      />
                      <div className="flex items-center w-full px-4 gap-3">
-                        <div className="px-3 py-1.5 bg-slate-900 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest group-hover:bg-indigo-600 transition-colors shrink-0">
+                        <div className="px-3 py-1.5 bg-blue-950 text-white rounded-xl text-[9px] font-bold uppercase tracking-widest group-hover:bg-slate-900 transition-colors shrink-0">
                           {appIconBase64 ? 'Change Icon' : 'Choose Icon'}
                         </div>
-                        <span className="text-[10px] font-mono font-bold text-slate-500 truncate opacity-70 group-hover:opacity-100 transition-opacity flex-1">
+                        <span className="text-sm font-bold text-slate-900 truncate opacity-70 group-hover:opacity-100 transition-opacity flex-1 tracking-tight">
                           {appIconBase64 ? appIconName || 'Icon selected' : 'No icon chosen'}
                         </span>
                         {appIconBase64 && (
                           <button 
                             type="button"
-                            onClick={clearIcon}
-                            className="z-20 p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all active:scale-90"
+                            onClick={(e) => { e.preventDefault(); clearIcon(e); }} className="relative z-20 p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all active:scale-90"
                           >
                             <X size={14} strokeWidth={3} />
                           </button>
@@ -449,36 +421,62 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                 </div>
               </div>
 
-
-              <div className="md:col-span-2 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setEnableCustomSplash(!enableCustomSplash)}
-                  className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all group ${
-                    enableCustomSplash ? 'border-indigo-500 bg-indigo-50/20' : 'border-slate-200 bg-slate-50/50 hover:bg-white'
-                  }`}
-                >
-                  <div className="flex flex-col items-start text-left">
-                    <span className={`text-[12px] font-bold transition-colors ${enableCustomSplash ? 'text-indigo-900' : 'text-slate-700'}`}>Custom Splash Screen</span>
-                  </div>
-                  <div className={`w-8 h-4.5 rounded-full relative transition-colors ${enableCustomSplash ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                    <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${enableCustomSplash ? 'translate-x-3.5' : ''} shadow-sm`} />
-                  </div>
-                </button>
+              <div className="space-y-1.5 md:col-span-2 pt-1 lg:col-span-2">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5">App Orientation</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['default', 'portrait', 'landscape'] as const).map((o) => (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() => setOrientation(o)}
+                      className={`py-2.5 px-1 rounded-xl border text-[10px] font-bold capitalize transition-all overflow-hidden text-ellipsis whitespace-nowrap ${
+                        orientation === o 
+                          ? 'bg-blue-950 text-white border-slate-900 shadow-md shadow-blue-950/10' 
+                          : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      {o}
+                    </button>
+                  ))}
+                </div>
               </div>
+            </div>
+          </div>
+
+          <div className="pt-8 border-t border-slate-100">
+            <div className="mb-4">
+               <h2 className="text-lg font-display font-bold text-slate-900 tracking-tight">Custom Splash Screen</h2>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-70">Custom colors, scale & motion</p>
+            </div>
+            
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => setEnableCustomSplash(!enableCustomSplash)}
+                className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all group ${
+                  enableCustomSplash ? 'border-blue-500 bg-slate-100/20' : 'border-slate-200 bg-white hover:border-slate-300 shadow-sm'
+                }`}
+              >
+                <div className="flex flex-col items-start text-left">
+                  <span className={`text-xs font-bold transition-colors ${enableCustomSplash ? 'text-slate-900' : 'text-slate-700'}`}>Enable Custom Splash Screen</span>
+                </div>
+                <div className={`w-8 h-4.5 rounded-full relative transition-colors ${enableCustomSplash ? 'bg-blue-950' : 'bg-slate-200'}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${enableCustomSplash ? 'translate-x-3.5' : ''} shadow-sm`} />
+                </div>
+              </button>
 
               {enableCustomSplash && (
-                <div className="md:col-span-2 pt-2">
+                <div>
                   <button
                     type="button"
                     onClick={() => setShowSplashDesigner(true)}
-                    className="relative group w-full overflow-hidden rounded-[48px] border-2 border-dashed border-slate-200 bg-slate-50/50 hover:bg-white hover:border-indigo-400 hover:shadow-2xl hover:shadow-indigo-600/10 transition-all duration-700"
+                    className="relative group w-full overflow-hidden rounded-[48px] border-2 border-dashed border-slate-200 bg-slate-50/50 hover:bg-white hover:border-blue-400 hover:shadow-2xl hover:shadow-blue-950/10 transition-all duration-700"
                   >
                     <div className="flex flex-col items-center p-8 sm:p-10">
                       {/* Header: Title & Description */}
                       <div className="text-center mb-6 w-full animate-in fade-in duration-1000">
                         <div className="flex items-center justify-center gap-3 mb-3">
-                          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform duration-500">
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-900 flex items-center justify-center group-hover:scale-110 transition-transform duration-500">
                             <Sparkles size={20} />
                           </div>
                           <span className="text-xl font-display font-bold text-slate-900 tracking-tight whitespace-nowrap">Splash Designer</span>
@@ -489,7 +487,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                       </div>
 
                       {/* Middle: Visual Preview Card */}
-                      <div className="relative group-hover:scale-105 transition-transform duration-700 mb-6 shadow-2xl shadow-slate-900/10 scale-[0.8] origin-center">
+                      <div className="relative group-hover:scale-105 transition-transform duration-700 mb-6 shadow-2xl shadow-blue-950/10 scale-[0.8] origin-center">
                         <SplashPreview 
                           backgroundColor={splashConfig.backgroundColor}
                           iconSize={splashConfig.iconSize}
@@ -501,7 +499,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
 
                       {/* Bottom: Configure Button only */}
                       <div className="flex items-center justify-center animate-in slide-in-from-bottom-2">
-                        <div className="px-8 py-3 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-600/20 flex items-center gap-2 font-bold text-[10px] hover:bg-black transition-all hover:scale-105 active:scale-95 uppercase tracking-widest">
+                        <div className="px-8 py-3 bg-blue-950 text-white rounded-2xl shadow-xl shadow-blue-950/20 flex items-center gap-2 font-bold text-[10px] hover:bg-blue-950 transition-all hover:scale-105 active:scale-95 uppercase tracking-widest">
                           Edit Splash <Sparkles size={12} strokeWidth={2.5} />
                         </div>
                       </div>
@@ -529,15 +527,15 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                     disabled={perm.id === 'INTERNET'}
                     className={`relative flex items-center justify-between p-3.5 rounded-xl border text-left transition-all ${
                       isActive 
-                        ? 'border-indigo-500 bg-indigo-50/20' 
+                        ? 'border-blue-500 bg-slate-100/20' 
                         : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'
                     } ${perm.id === 'INTERNET' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
                   >
-                    <div className={`text-[11px] font-bold tracking-tight ${isActive ? 'text-indigo-900' : 'text-slate-900'}`}>
+                    <div className={`text-xs font-bold ${isActive ? 'text-slate-900' : 'text-slate-700'}`}>
                       {perm.label}
                     </div>
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-                      isActive ? 'bg-indigo-600 border-indigo-600' : 'border-slate-200 bg-white'
+                      isActive ? 'bg-blue-950 border-blue-950' : 'border-slate-200 bg-white'
                     }`}>
                       {isActive && <CheckCircle2 size={10} className="text-white" strokeWidth={3} />}
                     </div>
@@ -559,36 +557,71 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                 onClick={() => setDoubleTapToExit(!doubleTapToExit)}
                 className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all ${
                   doubleTapToExit 
-                    ? 'border-indigo-500 bg-indigo-50/20' 
+                    ? 'border-blue-500 bg-slate-100/20' 
                     : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'
                 }`}
               >
                 <div className="flex flex-col items-start text-left">
-                  <span className={`text-xs font-bold ${doubleTapToExit ? 'text-indigo-900' : 'text-slate-700'}`}>Double Tap to Exit</span>
+                  <span className={`text-xs font-bold ${doubleTapToExit ? 'text-slate-900' : 'text-slate-700'}`}>Double Tap to Exit</span>
                 </div>
-                <div className={`w-8 h-4.5 rounded-full relative transition-colors ${doubleTapToExit ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                <div className={`w-8 h-4.5 rounded-full relative transition-colors ${doubleTapToExit ? 'bg-blue-950' : 'bg-slate-200'}`}>
                   <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${doubleTapToExit ? 'translate-x-3.5' : ''} shadow-sm`} />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFullscreen(!fullscreen)}
+                className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all group ${
+                  fullscreen ? 'border-blue-500 bg-slate-100/20' : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'
+                }`}
+              >
+                <div className="flex flex-col items-start text-left">
+                  <span className={`text-xs font-bold transition-colors ${fullscreen ? 'text-slate-900' : 'text-slate-700'}`}>Fullscreen Mode</span>
+                </div>
+                <div className={`w-8 h-4.5 rounded-full relative transition-colors ${fullscreen ? 'bg-blue-950' : 'bg-slate-200'}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${fullscreen ? 'translate-x-3.5' : ''} shadow-sm`} />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAllowCleartext(!allowCleartext)}
+                className={`flex items-center justify-between w-full h-12 px-5 rounded-xl border transition-all group ${
+                  allowCleartext ? 'border-amber-500 bg-amber-50/20' : 'border-slate-200 hover:border-slate-300 bg-white shadow-sm'
+                }`}
+              >
+                <div className="flex flex-col items-start text-left">
+                  <span className={`text-xs font-bold transition-colors ${allowCleartext ? 'text-amber-900' : 'text-slate-700'}`}>Insecure Traffic (HTTP)</span>
+                </div>
+                <div className={`w-8 h-4.5 rounded-full relative transition-colors ${allowCleartext ? 'bg-amber-500' : 'bg-slate-200'}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${allowCleartext ? 'translate-x-3.5' : ''} shadow-sm`} />
                 </div>
               </button>
 
               <div className="pt-2">
                 <div className="p-6 rounded-[32px] border border-slate-200 bg-white space-y-5 shadow-sm">
-                   <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Layout size={16} className="text-indigo-600" />
-                        <span className="text-[14px] font-bold text-slate-900">Cloud Messaging (FCM)</span>
-                      </div>
-                      {googleServicesJsonBase64 && (
-                        <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 animate-in zoom-in-50">
-                          <CheckCircle2 size={10} strokeWidth={2.5} />
-                          <span className="text-[9px] font-bold uppercase tracking-wider">Active</span>
+                   <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Bell size={16} className="text-slate-900" />
+                          <span className="text-sm font-bold text-slate-900">Firebase Push Notifications</span>
                         </div>
-                      )}
+                        {googleServicesJsonBase64 && (
+                          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 animate-in zoom-in-50">
+                            <CheckCircle2 size={10} strokeWidth={2.5} />
+                            <span className="text-[9px] font-bold uppercase tracking-wider">Active</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium leading-relaxed max-w-[95%]">
+                        Enable native push notifications using Firebase Cloud Messaging (FCM). Upload your project's <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded text-[9px] border border-slate-200">google-services.json</code> file to activate this capability.
+                      </p>
                    </div>
                    
                     <div className="space-y-2">
                       <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Configuration file (google-services.json)</label>
-                      <div className="h-12 flex items-center bg-slate-50 border border-slate-200 rounded-xl overflow-hidden focus-within:border-indigo-500 transition-all hover:bg-white group shadow-sm relative">
+                      <div className="h-12 flex items-center bg-slate-50 border border-slate-200 rounded-xl overflow-hidden focus-within:border-blue-500 transition-all hover:bg-white group shadow-sm relative cursor-pointer">
                          <input 
                            type="file" 
                            accept=".json" 
@@ -596,7 +629,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
                          />
                          <div className="flex items-center w-full px-4 gap-3">
-                            <div className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest group-hover:bg-indigo-600 transition-colors shrink-0">
+                            <div className="px-3 py-1.5 bg-blue-950 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest group-hover:bg-slate-900 transition-colors shrink-0">
                               {googleServicesJsonBase64 ? 'Replace' : 'Select File'}
                             </div>
                             <span className="text-[10px] font-mono font-bold text-slate-500 truncate opacity-70 group-hover:opacity-100 transition-opacity flex-1">
@@ -605,8 +638,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                             {googleServicesJsonBase64 && (
                               <button 
                                 type="button"
-                                onClick={clearGoogleServices}
-                                className="z-20 p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all active:scale-90"
+                                onClick={(e) => { e.preventDefault(); clearGoogleServices(e); }} className="relative z-20 p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all active:scale-90"
                               >
                                 <X size={14} strokeWidth={3} />
                               </button>
@@ -621,9 +653,9 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                     className="flex items-center justify-between w-full pt-4 border-t border-slate-100 group"
                   >
                     <div className="flex flex-col items-start text-left">
-                      <span className={`text-[11px] font-bold uppercase tracking-tight transition-colors ${askNotificationsOnLaunch ? 'text-indigo-600' : 'text-slate-400'}`}>Request on Launch</span>
+                      <span className={`text-xs font-bold transition-colors ${askNotificationsOnLaunch ? 'text-slate-900' : 'text-slate-700'}`}>Request on Launch</span>
                     </div>
-                    <div className={`w-8 h-4.5 rounded-full relative transition-colors ${askNotificationsOnLaunch ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                    <div className={`w-8 h-4.5 rounded-full relative transition-colors ${askNotificationsOnLaunch ? 'bg-blue-950' : 'bg-slate-200'}`}>
                       <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${askNotificationsOnLaunch ? 'translate-x-3.5' : ''} shadow-sm`} />
                     </div>
                   </button>
@@ -639,7 +671,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full sm:w-auto bg-indigo-600 hover:bg-black text-white font-bold px-12 py-4 rounded-2xl transition-all flex justify-center items-center gap-3 shadow-xl shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-sm uppercase tracking-widest group"
+              className="w-full sm:w-auto bg-blue-950 hover:bg-black text-white font-bold px-12 py-4 rounded-2xl transition-all flex justify-center items-center gap-3 shadow-xl shadow-blue-950/20 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-sm uppercase tracking-widest group"
             >
               {loading ? (
                 <>
