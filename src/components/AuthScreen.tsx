@@ -41,55 +41,56 @@ export default function AuthScreen() {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-100 mt-4 sm:mt-12"
+      initial={{ opacity: 0, scale: 0.95, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="bg-white p-10 sm:p-12 rounded-[40px] shadow-[0_4px_30px_rgb(0,0,0,0.03)] border border-slate-200/50 mt-4 sm:mt-12 max-w-lg mx-auto"
     >
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-blue-600 mb-4">
-          <Smartphone size={24} />
+      <div className="text-center mb-10">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-indigo-50 text-indigo-600 mb-6 border border-indigo-100/50 shadow-inner">
+          <Smartphone size={28} strokeWidth={2.5} />
         </div>
-        <h1 className="text-2xl font-semibold text-slate-800">
-          {isLogin ? 'Welcome back' : 'Create an account'}
+        <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
+          {isLogin ? 'Welcome back' : 'Create Account'}
         </h1>
-        <p className="text-slate-500 mt-2 text-sm">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 opacity-70">
           {isLogin 
-            ? 'Sign in to manage your APK builds.' 
-            : 'Sign up to start transforming web apps to APKs.'}
+            ? 'Sign in to access your dashboard' 
+            : 'Join us and start building custom apps'}
         </p>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-start gap-3">
-          <AlertCircle size={18} className="shrink-0 mt-0.5" />
+        <div className="mb-8 p-5 bg-red-50 text-red-700 rounded-2xl text-sm font-medium flex items-start gap-4 border border-red-100 shadow-sm animate-in shake-in duration-300">
+          <AlertCircle size={20} className="shrink-0 mt-0.5" />
           <p>{error}</p>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
+          <div className="relative group">
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={20} />
             <input 
               type="email" 
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
-              placeholder="you@example.com"
+              className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 outline-none transition-all font-medium text-slate-700"
+              placeholder="name@example.com"
             />
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Password</label>
+          <div className="relative group">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={20} />
             <input 
               type="password" 
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+              className="w-full pl-12 pr-4 py-4 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 outline-none transition-all font-medium text-slate-700"
               placeholder="••••••••"
             />
           </div>
@@ -98,20 +99,20 @@ export default function AuthScreen() {
         <button 
           type="submit" 
           disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl transition flex justify-center items-center mt-6 disabled:opacity-70"
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl shadow-xl shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex justify-center items-center mt-8 disabled:opacity-70 active:scale-95 text-base"
         >
-          {loading ? <RefreshCw className="animate-spin" size={20} /> : (isLogin ? 'Sign In' : 'Create Account')}
+          {loading ? <RefreshCw className="animate-spin" size={22} /> : (isLogin ? 'Sign In' : 'Get Started')}
         </button>
       </form>
 
-      <div className="mt-8 text-center text-sm text-slate-500">
+      <div className="mt-10 py-6 border-t border-slate-100 text-center text-sm font-medium text-slate-500">
         {isLogin ? "Don't have an account?" : "Already have an account?"}
         <button 
           type="button" 
           onClick={() => setIsLogin(!isLogin)}
-          className="ml-1 text-blue-600 font-medium hover:underline"
+          className="ml-2 text-indigo-600 font-bold hover:text-indigo-700 transition"
         >
-          {isLogin ? 'Sign up' : 'Sign in'}
+          {isLogin ? 'Join now' : 'Sign in instead'}
         </button>
       </div>
     </motion.div>

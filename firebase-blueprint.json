@@ -17,6 +17,18 @@
           "type": "string",
           "description": "The name of the application."
         },
+        "packageName": {
+          "type": "string",
+          "description": "Android package name (e.g. com.example.app)."
+        },
+        "versionName": {
+          "type": "string",
+          "description": "User-visible version string (e.g. 1.0.0)."
+        },
+        "versionCode": {
+          "type": "string",
+          "description": "Internal version code (must be an integer string)."
+        },
         "repoUrl": {
           "type": "string",
           "description": "The GitHub repository URL."
@@ -25,6 +37,31 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Android permissions required (e.g. RECORD_AUDIO, CAMERA)."
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["default", "portrait", "landscape"]
+        },
+        "fullscreen": {
+          "type": "boolean"
+        },
+        "allowCleartext": {
+          "type": "boolean"
+        },
+        "googleServicesJsonName": {
+          "type": "string"
+        },
+        "splashBackgroundColor": {
+          "type": "string",
+          "description": "Splash screen background color (hex)."
+        },
+        "splashIconSize": {
+          "type": "number",
+          "description": "Splash screen icon size (percentage)."
+        },
+        "splashAnimation": {
+          "type": "string",
+          "enum": ["none", "fade", "scale", "bounce"]
         },
         "status": {
           "type": "string",
@@ -40,7 +77,24 @@
           "format": "date-time"
         }
       },
-      "required": ["userId", "appName", "repoUrl", "status"]
+      "required": ["userId", "appName", "packageName", "repoUrl", "status"]
+    },
+    "Build": {
+      "title": "Build",
+      "description": "A specific build entry in the history.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string", "enum": ["building", "completed", "failed"] },
+        "versionName": { "type": "string" },
+        "versionCode": { "type": "string" },
+        "logUrl": { "type": "string" },
+        "buildFailureReason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "status", "versionName", "versionCode", "createdAt"]
     }
   },
   "firestore": {
@@ -49,6 +103,12 @@
         "$ref": "#/entities/Project"
       },
       "description": "Stores user projects."
+    },
+    "/projects/{projectId}/builds/{buildId}": {
+      "schema": {
+        "$ref": "#/entities/Build"
+      },
+      "description": "Build history for a project."
     }
   }
 }

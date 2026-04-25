@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Web2APK Converter",
+  "description": "Convert web apps and AI Studio exports to Android APKs using capacitor and Google Cloud Build.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
