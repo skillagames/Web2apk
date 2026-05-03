@@ -421,20 +421,19 @@ config.appName = "\\\${appName}";
 config.webDir = config.webDir || 'dist';
 
 config.android = config.android || {};
-config.android.edgeToEdge = false;
-config.android.adjustMarginsForEdgeToEdge = "disable";
+config.android.edgeToEdge = process.argv[6] === 'true';
 
 config.plugins = config.plugins || {};
 config.plugins.SplashScreen = {
   launchShowDuration: 3000,
   launchAutoHide: true,
   backgroundColor: '#ffffff',
-  splashIconSize: 50,
-  splashAnimation: "fade",
+  splashIconSize: parseInt(process.argv[4]) || 50,
+  splashAnimation: process.argv[5] || 'fade',
   androidScaleType: "CENTER_CROP",
   showSpinner: false,
-  splashFullScreen: false,
-  splashImmersive: false
+  splashFullScreen: process.argv[6] === 'true',
+  splashImmersive: process.argv[6] === 'true'
 };
 
 const blendColor = process.argv[2] || '#ffffff';
@@ -479,46 +478,40 @@ if (mainActivityPath) {
         }
         if (!javaCode.includes('public void onCreate(')) {
              let onCreateLogic = \\\`
-    @Override
-    public void onStart() {
-        super.onStart();
-        android.content.SharedPreferences prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-        int currentVersionCode = 1;
-        try {
-            currentVersionCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
-        } catch (Exception e) {}
-        int savedVersionCode = prefs.getInt("version_code", -1);
-        if (savedVersionCode != currentVersionCode) {
-            if (this.bridge != null && this.bridge.getWebView() != null) {
-                this.bridge.getWebView().clearCache(true);
-            }
-            prefs.edit().putInt("version_code", currentVersionCode).apply();
-            try {
-                java.io.File webViewDir = new java.io.File(getApplicationInfo().dataDir, "app_webview");
-                if (webViewDir.exists()) {
-                    java.io.File swDir1 = new java.io.File(webViewDir, "Default/Service Worker");
-                    java.io.File swDir2 = new java.io.File(webViewDir, "Service Worker");
-                    java.io.File[] dirs = {swDir1, swDir2};
-                    for (java.io.File dir : dirs) {
-                        if (dir.exists()) {
-                            String[] children = dir.list();
-                            if (children != null) {
-                                for (String child : children) {
-                                    new java.io.File(dir, child).delete();
-                                }
-                            }
-                            dir.delete();
-                        }
-                    }
+    private void deleteRec(java.io.File fileOrDir) {
+        if (fileOrDir != null && fileOrDir.isDirectory()) {
+            java.io.File[] children = fileOrDir.listFiles();
+            if (children != null) {
+                for (java.io.File child : children) {
+                    deleteRec(child);
                 }
-            } catch (Exception e) {}
+            }
         }
+        if (fileOrDir != null) fileOrDir.delete();
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
-        getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_VISIBLE);
+        android.content.SharedPreferences prefs = getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE);
+        long currentBuildTime = ${Date.now()}L;
+        long savedBuildTime = prefs.getLong("build_time", 0);
+        if (savedBuildTime != currentBuildTime) {
+            prefs.edit().putLong("build_time", currentBuildTime).apply();
+            try {
+                java.io.File webViewDir = new java.io.File(getApplicationInfo().dataDir, "app_webview");
+                if (webViewDir.exists()) {
+                    deleteRec(new java.io.File(webViewDir, "Default/Service Worker"));
+                    deleteRec(new java.io.File(webViewDir, "Service Worker"));
+                    deleteRec(new java.io.File(webViewDir, "Default/Cache"));
+                    deleteRec(new java.io.File(webViewDir, "Cache"));
+                }
+            } catch (Exception e) {}
+            try {
+                android.webkit.WebView webView = new android.webkit.WebView(this);
+                webView.clearCache(true);
+            } catch (Exception e) {}
+        }
+
         super.onCreate(savedInstanceState);
 \\\`;
              if (process.argv[8] === 'true') {
@@ -656,19 +649,6 @@ if (fs.existsSync(indexPath)) {
   // Capacitor plugins are natively configured via capacitor.config.json and MainActivity.java
 
   let jsConfig = "";
-  if (${fullscreen === false}) {
-     jsConfig += "import { StatusBar, Style } from '@capacitor/status-bar';\\n";
-     jsConfig += "StatusBar.setOverlaysWebView({ overlay: false }).catch(()=>{});\\n";
-     jsConfig += "StatusBar.setBackgroundColor({ color: '${splashBackgroundColor || '#ffffff'}' }).catch(()=>{});\\n";
-     jsConfig += "let isBgLight = true;\\n";
-     jsConfig += "try {\\n";
-     jsConfig += "  const hexStr = ('${splashBackgroundColor || '#ffffff'}').replace('#', '');\\n";
-     jsConfig += "  const rColor = parseInt(hexStr.substr(0, 2), 16), gColor = parseInt(hexStr.substr(2, 2), 16), bColor = parseInt(hexStr.substr(4, 2), 16);\\n";
-     jsConfig += "  const yiqVal = ((rColor*299)+(gColor*587)+(bColor*114))/1000;\\n";
-     jsConfig += "  isBgLight = yiqVal >= 128;\\n";
-     jsConfig += "} catch(e) {}\\n";
-     jsConfig += "StatusBar.setStyle({ style: isBgLight ? Style.Light : Style.Dark }).catch(()=>{});\\n";
-  }
   if (${doubleTapToExit}) {
      jsConfig += "import { App } from '@capacitor/app';\\n";
      jsConfig += "import { Toast } from '@capacitor/toast';\\n";
@@ -726,10 +706,53 @@ fi`
           args: [
             '-c',
             `set -ex
-             npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 || true
+             npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7 @capacitor/toast@7 @capacitor/status-bar@7 || true
              rm -rf android
              rm -f capacitor.config.*
              npx cap init "${safeAppName}" "${safePackageName}" --web-dir dist
+             
+             # CREATE CAPACITOR CONFIG BEFORE ADDING ANDROID
+             node -e "
+const fs = require('fs');
+let isLight = true;
+const blendColor = '${splashBackgroundColor || '#ffffff'}';
+try {
+  let hex = blendColor.replace('#', '');
+  if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  let rgbR = parseInt(hex.substr(0, 2), 16), rgbG = parseInt(hex.substr(2, 2), 16), rgbB = parseInt(hex.substr(4, 2), 16);
+  let yiqCalc = ((rgbR*299)+(rgbG*587)+(rgbB*114))/1000;
+  isLight = (yiqCalc >= 128);
+} catch(e) {}
+
+const config = {
+  appId: '${safePackageName}',
+  appName: '${safeAppName}',
+  webDir: 'dist',
+  android: {
+    edgeToEdge: ${fullscreen ? 'true' : 'false'}
+  },
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 3000,
+      launchAutoHide: true,
+      backgroundColor: blendColor,
+      splashIconSize: ${splashIconSize || 50},
+      splashAnimation: '${splashAnimation || 'fade'}',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+      splashFullScreen: ${fullscreen ? 'true' : 'false'},
+      splashImmersive: ${fullscreen ? 'true' : 'false'}
+    },
+    StatusBar: {
+      backgroundColor: blendColor,
+      style: isLight ? 'LIGHT' : 'DARK',
+      overlaysWebView: false
+    }
+  }
+};
+fs.writeFileSync('capacitor.config.json', JSON.stringify(config, null, 2));
+"
+
              npx cap add android || npx cap sync android
              
              # Update Version Code and Version Name
