@@ -68,6 +68,10 @@
           "enum": ["draft", "building", "completed", "failed"],
           "description": "The status of the APK build."
         },
+        "settingsVersion": {
+          "type": "number",
+          "description": "Version counter for settings"
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"

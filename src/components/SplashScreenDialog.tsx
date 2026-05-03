@@ -92,6 +92,13 @@ export default function SplashScreenDialog({
           {/* Body: Scrollable Content */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar bg-slate-50/20">
             <div className="p-6 md:p-8 space-y-8">
+
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex gap-3 text-blue-900 text-xs shadow-sm mb-6">
+                <AlertCircle size={16} className="shrink-0 mt-0.5 text-blue-600" />
+                <div className="leading-relaxed">
+                  <strong>Native Android 12+ Constraints:</strong> Android OS auto-generates your splash screen by taking your App Icon (or Push Icon) and placing it in a circle. Animations chosen here only apply to Capacitor's webview hide transition, not the native OS cold-boot animation.
+                </div>
+              </div>
               
               {/* 1. Smartphone Preview (TOP) */}
               <div className="flex flex-col items-center gap-5">

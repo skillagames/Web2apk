@@ -1,0 +1,1 @@
+const s = "\n"; console.log(s === "\n");

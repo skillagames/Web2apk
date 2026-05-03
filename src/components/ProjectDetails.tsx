@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, Clock, CheckCircle2, AlertCircle, FileCode2, 
   Trash2, Download, Rocket, Loader2, Calendar, 
-  ChevronRight, RefreshCw, Hash, LogOut, Package
+  ChevronRight, RefreshCw, Hash, LogOut, Package, Terminal, FileText, FileDown
 } from 'lucide-react';
 
 interface Build {
@@ -40,9 +40,11 @@ interface Project {
   appIconUrl?: string;
   appIconBase64?: string;
   googleServicesJsonName?: string;
+  googleServicesJsonBase64?: string;
   splashBackgroundColor?: string | null;
   splashIconSize?: number | null;
   splashAnimation?: string | null;
+  settingsVersion?: number;
   buildId?: string;
   buildStatusDetails?: string;
   downloadUrl?: string;
@@ -60,48 +62,225 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [quotaError, setQuotaError] = useState(false);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [cancellingBuild, setCancellingBuild] = useState<string | null>(null);
+  const [viewBuildLogs, setViewBuildLogs] = useState(false);
+  const [buildLogsText, setBuildLogsText] = useState<string>('');
+
+  const fetchBuildLogs = async () => {
+    if (!project?.buildId) return;
+    setBuildLogsText("Fetching logs...");
+    try {
+      const logsRes = await fetch(`/api/logs/${project.buildId}`);
+      if (!logsRes.ok) {
+        try {
+          const err = await logsRes.json();
+          setBuildLogsText(err.error || "Failed to fetch logs");
+        } catch(e) {
+          setBuildLogsText("Failed to fetch logs");
+        }
+      } else {
+        const text = await logsRes.text();
+        setBuildLogsText(text || "No logs available yet");
+      }
+    } catch(e) {
+      setBuildLogsText("Failed to connection to log stream");
+    }
+  };
+
+  useEffect(() => {
+    if (viewBuildLogs && project?.buildId) {
+      fetchBuildLogs();
+    }
+  }, [viewBuildLogs, project?.buildId]);
+
+  useEffect(() => {
+    if (project?.status !== 'building' || !project.buildId) return;
+    
+    // Poll for live steps when building
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/build/${project.buildId}?projectId=${project.id}&appName=${encodeURIComponent(project.appName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status && data.status !== project.buildStatusDetails) {
+             // Optimistic update
+             setProject(p => p ? { ...p, buildStatusDetails: data.status } : null);
+             const terminalStatuses = ['SUCCESS', 'FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED'];
+             if (terminalStatuses.includes(data.status)) {
+                // Perform DB sync on the client side to avoid backend permissions issues
+                try {
+                  const nextStatus = data.status === 'SUCCESS' ? 'completed' : 'failed';
+                  setProject(p => p ? { ...p, status: nextStatus, buildStatusDetails: data.status } : null);
+                  const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+                  const projectRef = doc(db, 'projects', project.id);
+                  let updateData: any = {
+                    status: nextStatus,
+                    buildStatusDetails: data.status,
+                    updatedAt: serverTimestamp()
+                  };
+                  if (data.downloadUrl) updateData.downloadUrl = data.downloadUrl;
+                  let reason = '';
+                  if (data.failureInfo) {
+                    reason = data.failureInfo.detail || data.failureInfo.type || 'Build failed';
+                    if (typeof reason !== 'string') reason = JSON.stringify(reason);
+                    updateData.buildFailureReason = reason.substring(0, 1900);
+                  }
+                  await updateDoc(projectRef, updateData);
+
+                  const buildUpdateData: any = {
+                    status: nextStatus,
+                    updatedAt: serverTimestamp(),
+                    buildFailureReason: reason.substring(0, 1900) || ''
+                  };
+                  if (data.downloadUrl) buildUpdateData.downloadUrl = data.downloadUrl;
+                  if (data.logUrl) buildUpdateData.logUrl = data.logUrl;
+                  
+                  const buildRef = doc(db, 'projects', project.id, 'builds', project.buildId!);
+                  await updateDoc(buildRef, buildUpdateData);
+                  
+                  setBuilds(prev => prev.map(b => 
+                    b.id === project.buildId 
+                      ? { ...b, ...buildUpdateData, updatedAt: new Date() as any } 
+                      : b
+                  ));
+                } catch(e) {
+                   console.error("Frontend db sync failed", e);
+                }
+             }
+          }
+        }
+      } catch (e) {
+        // network error ignores
+      }
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [project?.status, project?.buildId, project?.buildStatusDetails]);
+
+  const handleCancelBuild = async (buildId: string) => {
+    if (!window.confirm("Are you sure you want to cancel this build?")) return;
+    setCancellingBuild(buildId);
+    try {
+      const res = await fetch(`/api/build/${buildId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project?.id })
+      });
+      if (res.ok) {
+        try {
+          const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+          const projectRef = doc(db, 'projects', project!.id);
+          await updateDoc(projectRef, {
+            status: 'failed',
+            buildStatusDetails: 'CANCELLED',
+            updatedAt: serverTimestamp(),
+            buildFailureReason: 'Build cancelled by user.'
+          });
+          const buildRef = doc(db, 'projects', project!.id, 'builds', buildId);
+          await updateDoc(buildRef, {
+            status: 'failed',
+            updatedAt: serverTimestamp(),
+            buildFailureReason: 'Build cancelled by user.'
+          });
+        } catch(e) {
+           console.error("Cancel sync failed", e);
+        }
+        
+        setProject(p => p ? {
+          ...p,
+          status: 'failed',
+          buildStatusDetails: 'CANCELLED',
+          buildFailureReason: 'Build cancelled by user.',
+        } : null);
+        
+        setBuilds(prev => prev.map(b => 
+          b.id === buildId 
+            ? { ...b, status: 'failed', buildFailureReason: 'Build cancelled by user.', updatedAt: new Date() as any } 
+            : b
+        ));
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to cancel build");
+      }
+    } catch(e: any) {
+       alert("Failed to cancel build: " + e.message);
+    } finally {
+       setCancellingBuild(null);
+    }
+  };
 
   useEffect(() => {
     if (!projectId) return;
+    setIsRefreshing(true);
+    setLoading(true);
+    
+    const fetchDetails = async () => {
+      try {
+        const { getDoc, getDocs } = await import('firebase/firestore');
+        const docSnap = await getDoc(doc(db, 'projects', projectId));
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const pData = { id: docSnap.id, ...data } as Project;
+          pData.appIconUrl = `/api/icon/${docSnap.id}`;
+          
+          setProject(pData);
+        } else {
+          navigate('/');
+        }
 
-    // Project data
-    const unsubProject = onSnapshot(doc(db, 'projects', projectId), (docSnap) => {
-      if (docSnap.exists()) {
-        setProject({ id: docSnap.id, ...docSnap.data() } as Project);
-      } else {
-        navigate('/');
+        const q = query(
+          collection(db, 'projects', projectId, 'builds'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc')
+        );
+        const buildsSnap = await getDocs(q);
+        const buildData: Build[] = [];
+        buildsSnap.forEach(d => buildData.push({ id: d.id, ...d.data() } as Build));
+        setBuilds(buildData);
+      } catch (error: any) {
+        console.error("Project error:", error);
+        if (error?.message?.includes('Quota limit exceeded')) setQuotaError(true);
+      } finally {
+        setLoading(false);
+        setIsRefreshing(false);
       }
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `projects/${projectId}`);
-    });
-
-    // Build history
-    const buildsRef = collection(db, 'projects', projectId, 'builds');
-    const q = query(
-      buildsRef, 
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
-    
-    const unsubBuilds = onSnapshot(q, (snapshot) => {
-      const buildData: Build[] = [];
-      snapshot.forEach((d) => {
-        buildData.push({ id: d.id, ...d.data() } as Build);
-      });
-      setBuilds(buildData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `projects/${projectId}/builds`);
-    });
-
-    // Polling for active builds is now handled globally by ActiveBuildMonitor
-    // to prevent redundant Firestore writes and save quota.
-    
-    return () => {
-      unsubProject();
-      unsubBuilds();
     };
-  }, [projectId, navigate, project?.buildId, builds]);
+    
+    fetchDetails();
+  }, [projectId, user.uid]);
+
+  const fetchProjectData = async () => {
+    if (!projectId) return;
+    setIsRefreshing(true);
+    try {
+      const { getDoc, getDocs } = await import('firebase/firestore');
+      const docSnap = await getDoc(doc(db, 'projects', projectId));
+      if (docSnap.exists()) {
+          const data = docSnap.data();
+          const pData = { id: docSnap.id, ...data } as Project;
+          pData.appIconUrl = `/api/icon/${docSnap.id}`;
+          setProject(pData);
+      }
+      
+      const q = query(
+        collection(db, 'projects', projectId, 'builds'),
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const buildsSnap = await getDocs(q);
+      const buildData: Build[] = [];
+      buildsSnap.forEach(d => buildData.push({ id: d.id, ...d.data() } as Build));
+      setBuilds(buildData);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleRebuild = () => {
     if (!project) return;
@@ -156,7 +335,11 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
       });
       const data = await res.json();
       if (res.ok && data.url) {
-        window.open(data.url, '_blank');
+        const a = document.createElement('a');
+        a.href = data.url;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       } else {
         alert(data.error || 'Failed to get download URL');
       }
@@ -165,11 +348,48 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
     }
   };
 
+  const downloadLog = async (buildId: string) => {
+    try {
+      const res = await fetch(`/api/logs/${buildId}/download`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          const a = document.createElement('a');
+          a.href = data.url;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to download log");
+      }
+    } catch (e) {
+      alert("Failed to download log");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <Loader2 className="w-8 h-8 text-slate-900 animate-spin" />
         <p className="text-slate-500 font-medium italic">Loading project details...</p>
+      </div>
+    );
+  }
+
+  if (quotaError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 text-center animate-in fade-in zoom-in duration-500">
+        <div className="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center">
+          <AlertCircle size={48} />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Database Limit Reached</h2>
+          <p className="text-slate-500 mt-2 max-w-md mx-auto">
+            You've reached the free tier limits for your database's daily usage. Details have been paused and will load again when your quota resets.
+          </p>
+        </div>
       </div>
     );
   }
@@ -192,10 +412,20 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
             </div>
           )}
           <div>
-            <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 tracking-tight leading-none mb-0.5">
-              {project.appName}
-            </h1>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl sm:text-3xl font-display font-black text-slate-900 tracking-tight leading-none mb-0.5">
+                {project.appName}
+              </h1>
+              <button 
+                onClick={fetchProjectData}
+                disabled={isRefreshing || loading}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-200 transition-colors disabled:opacity-50 mt-1"
+                title="Refresh Details"
+              >
+                <RefreshCw size={16} className={isRefreshing ? "animate-spin text-blue-500" : ""} />
+              </button>
+            </div>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-1">
               {project.packageName ? `${project.packageName}${project.versionName ? ` v${project.versionName}` : ''}` : 'App Details'}
             </p>
           </div>
@@ -305,6 +535,23 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
                     </div>
                   </div>
                 </div>
+
+                {(project.splashIconSize || project.splashAnimation) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5 flex flex-col">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Splash Size</label>
+                      <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                        <span className="font-bold text-slate-900 text-xs">{project.splashIconSize || 50}%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 flex flex-col">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Splash Anim</label>
+                      <div className="h-11 flex items-center px-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+                        <span className="capitalize font-bold text-slate-900 text-xs">{project.splashAnimation || 'Fade'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -348,6 +595,67 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
             </div>
             
             <div className="space-y-4">
+              {project.status === 'building' && project.buildId && (
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-[32px] text-white shadow-xl shadow-slate-900/10 mb-8 mt-2 relative overflow-hidden group">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-blue-400 to-emerald-400"></div>
+                  <div className="flex items-start justify-between gap-4 relative z-10">
+                     <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                          <Loader2 size={24} className="animate-spin" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-lg tracking-tight">Build In Progress</h4>
+                          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-1 flex items-center gap-2">
+                            {project.buildStatusDetails || 'INITIALIZING'}
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                          </p>
+                        </div>
+                     </div>
+                     <button
+                        onClick={() => handleCancelBuild(project.buildId!)}
+                        disabled={cancellingBuild === project.buildId}
+                        className="text-[10px] font-bold text-red-400 hover:text-white bg-red-400/10 hover:bg-red-500/20 px-3 py-1.5 rounded-xl transition-colors border border-red-500/20"
+                     >
+                        {cancellingBuild === project.buildId ? 'CANCELLING...' : 'CANCEL BUILD'}
+                     </button>
+                  </div>
+                  
+                  {viewBuildLogs && (
+                    <div className="mt-6">
+                      <div className="bg-[#0A0A0A] rounded-xl p-4 sm:p-5 text-[10px] font-mono text-gray-300 h-64 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all w-full shadow-inner border border-gray-800 leading-relaxed">
+                        {buildLogsText || 'Attaching to builder log stream...'}
+                      </div>
+                      <div className="flex gap-4 items-center justify-end mt-4">
+                        <button 
+                          onClick={fetchBuildLogs}
+                          className="text-[10px] font-bold text-slate-400 hover:text-white uppercase tracking-widest flex items-center gap-1"
+                        >
+                          <RefreshCw size={12} />
+                          Refresh
+                        </button>
+                        <button 
+                          onClick={() => setViewBuildLogs(false)}
+                          className="text-[10px] font-bold text-slate-400 hover:text-white uppercase tracking-widest"
+                        >
+                          Hide Logs
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!viewBuildLogs && (
+                    <div className="flex justify-end mt-4">
+                      <button 
+                        onClick={() => setViewBuildLogs(true)}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest flex items-center gap-1 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-xl transition-colors"
+                      >
+                        <Terminal size={14} />
+                        View Live Logs
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {builds.length === 0 && project.status !== 'building' ? (
                 <div className="bg-slate-50 border-2 border-dashed border-slate-200/60 rounded-[32px] p-12 text-center">
                   <Rocket className="mx-auto text-slate-300 mb-4" size={40} />
@@ -356,7 +664,7 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
               ) : (
                 <>
                   {/* Current Active Build if any - Only show pulse if the high-level project says building but the subcollection doc hasn't appeared yet */}
-                  {project.status === 'building' && !builds.some(b => b.id === project.buildId) && (
+                  {project.status === 'building' && !project.buildId && (
                     <div className="bg-blue-50/50 border border-blue-200/50 p-5 rounded-[24px] animate-pulse flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-blue-600 shadow-lg shadow-blue-600/20 flex items-center justify-center text-white">
@@ -404,13 +712,11 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
 
                         <div className="flex items-center gap-3">
                           {build.status === 'completed' && (
-                            <a 
-                              href={build.downloadUrl || '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => {
-                                if (!build.downloadUrl) {
-                                  e.preventDefault();
+                            <button 
+                              onClick={() => {
+                                if (build.downloadUrl) {
+                                  window.open(build.downloadUrl, '_blank');
+                                } else {
                                   downloadApk(build);
                                 }
                               }}
@@ -418,31 +724,30 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
                             >
                               <Download size={16} className="transition-transform group-hover/btn:-translate-y-0.5" />
                               <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">APK</span>
-                            </a>
+                            </button>
                           )}
-                          {build.logUrl && (
-                            <a 
-                              href={build.logUrl} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2.5 rounded-xl border border-slate-200 hover:border-slate-300 transition-all shadow-sm active:scale-95 flex items-center gap-2 group/btn"
-                              title="View Build Logs"
-                            >
-                              <FileCode2 size={16} className="transition-transform group-hover/btn:-translate-y-0.5" />
-                            </a>
-                          )}
+                          <button 
+                            onClick={() => downloadLog(build.id)}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2.5 rounded-xl border border-slate-200 hover:border-slate-300 transition-all shadow-sm active:scale-95 flex items-center gap-2 px-4 group/btn"
+                            title="Download Build Log"
+                          >
+                            <FileDown size={16} className="transition-transform group-hover/btn:-translate-y-0.5" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">Log</span>
+                          </button>
                           {build.status === 'failed' && (
                              <div className="text-right">
                                 <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider block">Build Failed</span>
-                                {build.buildFailureReason && (
-                                  <span className="text-[10px] text-slate-400 truncate max-w-[150px] block" title={build.buildFailureReason}>
-                                    {build.buildFailureReason}
-                                  </span>
-                                )}
                              </div>
                           )}
                         </div>
                       </div>
+                      
+                      {build.status === 'failed' && build.buildFailureReason && (
+                         <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                            <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider block mb-1">Error Details:</span>
+                            <div className="text-[10px] text-red-400 font-mono whitespace-pre-wrap break-words">{build.buildFailureReason}</div>
+                         </div>
+                      )}
                     </motion.div>
                   ))}
                 </>

@@ -1,0 +1,21 @@
+{
+	"appId": "com.test.app",
+	"appName": "test",
+	"webDir": "www",
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 3000,
+			"launchAutoHide": true,
+			"backgroundColor": "#ffffff",
+			"splashIconSize": 50,
+			"splashAnimation": "fade",
+			"androidScaleType": "CENTER_CROP",
+			"showSpinner": false,
+			"splashFullScreen": false,
+			"splashImmersive": false
+		},
+		"LocalNotifications": {
+			"smallIcon": "ic_launcher"
+		}
+	}
+}

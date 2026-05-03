@@ -3,7 +3,6 @@ import { User, signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { LogOut, Home, PlusCircle, Folder, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
-import ActiveBuildMonitor from './ActiveBuildMonitor';
 
 interface LayoutProps {
   user: User | null;
@@ -29,7 +28,6 @@ export function Layout({ user }: LayoutProps) {
 
   return (
     <div className={`min-h-screen bg-slate-50/50 flex flex-col font-sans relative selection:bg-slate-200 selection:text-slate-900 ${user ? 'pb-20 sm:pb-0' : ''}`}>
-      {user && <ActiveBuildMonitor user={user} />}
       <header className="bg-white/70 backdrop-blur-xl border-b border-slate-200/60 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-40 min-h-[72px]">
         <div className="flex-1">
           {location.pathname !== '/' && user && (
@@ -64,7 +62,7 @@ export function Layout({ user }: LayoutProps) {
             </motion.span>
             <motion.span 
               initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2, type: "spring", stiffness: 400, damping: 20 }}
-              className="text-emerald-500"
+              className="text-indigo-600"
             >
               2
             </motion.span>

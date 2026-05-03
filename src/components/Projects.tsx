@@ -3,7 +3,7 @@ import { User } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Link, useNavigate } from 'react-router';
-import { Plus, CheckCircle2, Clock, AlertCircle, FileCode2, Trash2, Copy, Check, Loader2, ChevronRight, ChevronDown, ChevronUp, Settings, Terminal, Shield, Package, Folder } from 'lucide-react';
+import { Plus, CheckCircle2, Clock, AlertCircle, FileCode2, Trash2, Copy, Check, Loader2, ChevronRight, ChevronDown, ChevronUp, Settings, Terminal, Shield, Package, Folder, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface DashboardProps {
@@ -23,6 +23,7 @@ interface Project {
   packageName?: string;
   versionName?: string;
   versionCode?: string;
+  settingsVersion?: number;
   createdAt: any;
 }
 
@@ -30,6 +31,7 @@ export default function Projects({ user }: DashboardProps) {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [quotaError, setQuotaError] = useState(false);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
@@ -37,19 +39,26 @@ export default function Projects({ user }: DashboardProps) {
   const [logsText, setLogsText] = useState<string>('Loading logs...');
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
   
-  useEffect(() => {
-    // Only subscribe when user is authenticated
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchProjects = async () => {
     if (!user.uid) return;
+    setIsRefreshing(true);
+    setQuotaError(false);
 
-    const q = query(
-      collection(db, 'projects'),
-      where('userId', '==', user.uid)
-    );
+    try {
+      const { getDocs } = await import('firebase/firestore');
+      const q = query(
+        collection(db, 'projects'),
+        where('userId', '==', user.uid)
+      );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const snapshot = await getDocs(q);
       const projData: Project[] = [];
       snapshot.forEach((doc) => {
-        projData.push({ id: doc.id, ...doc.data() } as Project);
+        const pData = { id: doc.id, ...doc.data() } as Project;
+        pData.appIconUrl = `/api/icon/${doc.id}`;
+        projData.push(pData);
       });
       // Sort in frontend since we don't have composite index set up yet
       projData.sort((a, b) => {
@@ -59,41 +68,23 @@ export default function Projects({ user }: DashboardProps) {
       });
       
       setProjects(projData);
+    } catch (error: any) {
+      if (error?.message?.includes('Quota limit exceeded')) {
+        setQuotaError(true);
+      } else {
+        handleFirestoreError(error, OperationType.LIST, 'projects');
+      }
+    } finally {
       setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'projects');
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    if (!viewLogsId) return;
-    
-    const fetchLogs = async () => {
-      const project = projects.find(p => p.id === viewLogsId);
-      if (!project?.buildId) {
-        setLogsText("No build ID found for this project.");
-        return;
-      }
-      try {
-        const res = await fetch(`/api/logs/${project.buildId}`);
-        if (!res.ok) {
-           const err = await res.json();
-           setLogsText(err.error || "Failed to fetch logs.");
-        } else {
-           const text = await res.text();
-           setLogsText(text || "No logs available yet.");
-        }
-      } catch (err) {
-        setLogsText("Error fetching logs.");
-      }
-    };
-    
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 5000); // Check every 5s for updates
-    return () => clearInterval(interval);
-  }, [viewLogsId, projects]);
+    fetchProjects();
+  }, [user.uid]);
+
+
 
   useEffect(() => {
     // Global polling is now handled by ActiveBuildMonitor to optimize Firebase quota
@@ -145,7 +136,20 @@ export default function Projects({ user }: DashboardProps) {
         </div>
       </div>
 
-      {loading ? (
+      {quotaError && (
+        <div className="bg-red-50/50 border border-red-100 text-red-900 p-8 rounded-[32px] shadow-sm text-center backdrop-blur-sm">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-[24px] bg-red-100/50 text-red-600 mb-4 border border-red-200/50">
+             <AlertCircle size={32} />
+          </div>
+          <h2 className="text-xl font-display font-black text-slate-900 tracking-tight mb-2">Firebase Quota Reached</h2>
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest max-w-sm mx-auto leading-relaxed">
+            Your free daily Firestore read/write quota has been exceeded. 
+            Management functionality will resume once the quota resets (usually at midnight Pacific Time).
+          </p>
+        </div>
+      )}
+
+      {loading && !quotaError ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[1,2,3,4].map(i => (
             <div key={i} className="animate-pulse bg-white border border-slate-100 rounded-[32px] h-48 shadow-sm"></div>
@@ -160,9 +164,9 @@ export default function Projects({ user }: DashboardProps) {
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 mb-6 max-w-xs mx-auto opacity-70">Convert your web app into a high-performance native Android experience</p>
           <Link 
             to="/new" 
-            className="inline-flex items-center gap-2 bg-blue-950 hover:bg-black text-white px-6 py-3 rounded-2xl font-bold transition shadow-2xl shadow-blue-950/20 active:scale-95 text-sm"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white px-7 py-3.5 rounded-2xl font-bold transition-all shadow-xl shadow-indigo-600/20 active:scale-95 text-sm hover:-translate-y-0.5"
           >
-            <Plus size={18} /> New Application
+            <Plus size={18} strokeWidth={3} /> New Application
           </Link>
         </div>
       ) : (
@@ -216,52 +220,58 @@ export default function Projects({ user }: DashboardProps) {
                       <Clock size={10} strokeWidth={3} className="text-slate-300" /> {project.createdAt?.toMillis ? new Date(project.createdAt.toMillis()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
                     </span>
                   </div>
-                  <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-100 group-hover:text-blue-500 transform group-hover:translate-x-1 transition-all">
-                    <ChevronRight size={14} strokeWidth={2.5} />
+                  
+                  <div className="flex items-center gap-2">
+                    {/* Delete Action Wrapper */}
+                    <div className="relative flex items-center">
+                      {confirmDeleteId === project.id ? (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.9, x: 10 }}
+                          animate={{ opacity: 1, scale: 1, x: 0 }}
+                          className="absolute right-0 flex items-center gap-1 z-30"
+                        >
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                await fetch('/api/delete-project', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ projectId: project.id })
+                                });
+                                await deleteDoc(doc(db, 'projects', project.id));
+                                setConfirmDeleteId(null);
+                              } catch (e) {
+                                console.error('Failed to delete:', e);
+                              }
+                            }}
+                            className="text-[10px] font-bold bg-rose-50/90 backdrop-blur-sm text-rose-600 hover:bg-rose-100 border border-rose-100 px-4 py-2 rounded-xl transition-all uppercase tracking-wider active:scale-95 whitespace-nowrap"
+                          >
+                            Delete App
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                            className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl transition-colors shadow-sm bg-white/50 border border-slate-100"
+                          >
+                            <Plus size={16} className="rotate-45" strokeWidth={3} />
+                          </button>
+                        </motion.div>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(project.id); }}
+                          className="w-8 h-8 flex items-center justify-center bg-slate-50 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                          title="Delete App"
+                        >
+                          <Trash2 size={13} strokeWidth={2.5} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-100 group-hover:text-blue-500 transform group-hover:translate-x-1 transition-all">
+                      <ChevronRight size={14} strokeWidth={2.5} />
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Delete button positioned absolute to not interfere with card click */}
-              <div className="absolute right-2 bottom-2 flex justify-end">
-                {confirmDeleteId === project.id ? (
-                  <div className="bg-white shadow-xl shadow-red-900/10 border border-red-100 p-1 rounded-xl flex items-center gap-1 z-20 animate-in slide-in-from-right-2">
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          // Trigger cleanup API
-                          await fetch('/api/delete-project', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ projectId: project.id })
-                          });
-                          await deleteDoc(doc(db, 'projects', project.id));
-                          setConfirmDeleteId(null);
-                        } catch (e) {
-                          console.error('Failed to delete:', e);
-                        }
-                      }}
-                      className="text-[9px] font-bold bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 rounded-lg transition"
-                    >
-                      DEL
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                      className="text-[9px] font-bold text-gray-500 hover:bg-gray-100 px-2.5 py-1.5 rounded-lg transition"
-                    >
-                      X
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(project.id); }}
-                    className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                    title="Delete App"
-                  >
-                    <Trash2 size={14} strokeWidth={2} />
-                  </button>
-                )}
               </div>
             </motion.div>
           ))}

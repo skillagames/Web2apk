@@ -1,0 +1,13 @@
+const fs = require('fs');
+const execSync = require('child_process').execSync;
+const os = require('os');
+const path = require('path');
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cap-test-'));
+process.chdir(tmpDir);
+execSync('npm init -y', {stdio:'ignore'});
+execSync('npm install @capacitor/cli@7 @capacitor/core@7 @capacitor/android@7', {stdio:'ignore'});
+execSync('npx cap init test com.test.app --web-dir www', {stdio:'ignore'});
+fs.mkdirSync('www');
+fs.writeFileSync('www/index.html', '1');
+execSync('npx cap add android', {stdio:'ignore'});
+console.log(fs.readFileSync('android/app/src/main/res/values/styles.xml', 'utf8'));

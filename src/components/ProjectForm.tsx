@@ -4,10 +4,11 @@ import { User } from 'firebase/auth';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { motion } from 'motion/react';
-import { ArrowLeft, Rocket, AlertCircle, CheckCircle2, Loader2, Sparkles, Layout, Smartphone, X, Wrench, Bell } from 'lucide-react';
+import { ArrowLeft, Rocket, AlertCircle, CheckCircle2, Loader2, Sparkles, Layout, Smartphone, X, Wrench, Bell, FileCode2 } from 'lucide-react';
 import { Link } from 'react-router';
 import SplashScreenDialog from './SplashScreenDialog';
 import SplashPreview from './SplashPreview';
+import NotificationIconStudio from './NotificationIconStudio';
 
 interface ProjectFormProps {
   user: User;
@@ -20,6 +21,34 @@ const AVAILABLE_PERMISSIONS = [
   { id: 'ACCESS_FINE_LOCATION', label: 'Location', default: false },
   { id: 'POST_NOTIFICATIONS', label: 'Notifications', default: false },
 ];
+
+const AndroidXMLPreview = ({ xmlBase64 }: { xmlBase64: string }) => {
+  try {
+    const b64Data = xmlBase64.split('base64,')[1] || '';
+    const text = atob(b64Data);
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/xml');
+    const vector = doc.querySelector('vector');
+    if (!vector) return <FileCode2 className="w-8 h-8 text-slate-500" />;
+
+    const width = parseFloat(vector.getAttribute('android:viewportWidth') || '24');
+    const height = parseFloat(vector.getAttribute('android:viewportHeight') || '24');
+    
+    const paths = Array.from(doc.querySelectorAll('path')).map((p, i) => {
+      const d = p.getAttribute('android:pathData');
+      const fill = p.getAttribute('android:fillColor') || 'currentColor';
+      return <path key={i} d={d || ''} fill={fill} />;
+    });
+
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full object-contain">
+        {paths}
+      </svg>
+    );
+  } catch (e) {
+    return <FileCode2 className="w-8 h-8 text-slate-500" />;
+  }
+};
 
 export default function ProjectForm({ user }: ProjectFormProps) {
   const navigate = useNavigate();
@@ -41,9 +70,15 @@ export default function ProjectForm({ user }: ProjectFormProps) {
   const [googleServicesJsonBase64, setGoogleServicesJsonBase64] = useState<string>('');
   const [googleServicesJsonName, setGoogleServicesJsonName] = useState<string>(existingProject?.googleServicesJsonName || '');
   const [askNotificationsOnLaunch, setAskNotificationsOnLaunch] = useState(existingProject?.askNotificationsOnLaunch || false);
+  const [notificationIconBase64, setNotificationIconBase64] = useState<string>(existingProject?.notificationIconBase64 || '');
+  const [notificationIconName, setNotificationIconName] = useState<string>(existingProject?.notificationIconName || '');
+  const [showNotificationStudio, setShowNotificationStudio] = useState(false);
   
-  const hasCustomSplash = !!existingProject?.splashBackgroundColor;
+  const hasCustomSplash = !!existingProject?.splashIconSize || (!!existingProject?.splashBackgroundColor && existingProject.splashIconSize !== null && existingProject.splashIconSize !== undefined);
+  const hasBasicSplashColor = !!existingProject?.splashBackgroundColor && !hasCustomSplash;
+  
   const [enableCustomSplash, setEnableCustomSplash] = useState(hasCustomSplash);
+  const [enableSplashColor, setEnableSplashColor] = useState(hasBasicSplashColor);
   const [showSplashDesigner, setShowSplashDesigner] = useState(false);
   const [splashConfig, setSplashConfig] = useState({
     backgroundColor: existingProject?.splashBackgroundColor || '#FFFFFF',
@@ -88,7 +123,32 @@ export default function ProjectForm({ user }: ProjectFormProps) {
       const reader = new FileReader();
       reader.onload = (event) => {
          if (event.target?.result && typeof event.target.result === 'string') {
-            setAppIconBase64(event.target.result);
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_SIZE = 256;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > height) {
+                if (width > MAX_SIZE) {
+                  height *= MAX_SIZE / width;
+                  width = MAX_SIZE;
+                }
+              } else {
+                if (height > MAX_SIZE) {
+                  width *= MAX_SIZE / height;
+                  height = MAX_SIZE;
+                }
+              }
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/png', 0.8);
+              setAppIconBase64(dataUrl);
+            };
+            img.src = event.target.result;
          }
       };
       reader.readAsDataURL(file);
@@ -110,11 +170,70 @@ export default function ProjectForm({ user }: ProjectFormProps) {
     }
   };
 
+  const handleNotificationIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setNotificationIconName(file.name);
+      
+      if (file.name.toLowerCase().endsWith('.xml') || file.type.includes('xml')) {
+         const reader = new FileReader();
+         reader.onload = (event) => {
+            if (event.target?.result && typeof event.target.result === 'string') {
+               setNotificationIconBase64(event.target.result);
+            }
+         };
+         reader.readAsDataURL(file);
+         return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+         if (event.target?.result && typeof event.target.result === 'string') {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_SIZE = 96;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > height) {
+                if (width > MAX_SIZE) {
+                  height *= MAX_SIZE / width;
+                  width = MAX_SIZE;
+                }
+              } else {
+                if (height > MAX_SIZE) {
+                  width *= MAX_SIZE / height;
+                  height = MAX_SIZE;
+                }
+              }
+              
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL('image/png');
+                setNotificationIconBase64(dataUrl);
+              }
+            };
+            img.src = event.target.result;
+         }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const clearIcon = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setAppIconBase64('');
     setAppIconName('');
+  };
+
+  const clearNotificationIcon = () => {
+    setNotificationIconBase64('');
+    setNotificationIconName('');
   };
 
   const clearGoogleServices = (e: React.MouseEvent) => {
@@ -173,10 +292,11 @@ export default function ProjectForm({ user }: ProjectFormProps) {
         doubleTapToExit,
         askNotificationsOnLaunch,
         googleServicesJsonName,
-        appIconBase64: appIconBase64 || existingProject?.appIconBase64 || '',
-        splashBackgroundColor: enableCustomSplash ? splashConfig.backgroundColor : null,
+        notificationIconName,
+        splashBackgroundColor: enableCustomSplash ? splashConfig.backgroundColor : (enableSplashColor ? splashConfig.backgroundColor : null),
         splashIconSize: enableCustomSplash ? splashConfig.iconSize : null,
         splashAnimation: enableCustomSplash ? splashConfig.animation : null,
+        settingsVersion: (existingProject?.settingsVersion || 0) + 1,
         updatedAt: serverTimestamp()
       };
       
@@ -208,9 +328,10 @@ export default function ProjectForm({ user }: ProjectFormProps) {
              permissions,
              doubleTapToExit,
              askNotificationsOnLaunch,
-             googleServicesJsonBase64,
-             appIconBase64,
-             splashBackgroundColor: enableCustomSplash ? splashConfig.backgroundColor : null,
+             googleServicesJsonBase64: googleServicesJsonBase64 || existingProject?.googleServicesJsonBase64 || '',
+             notificationIconBase64: notificationIconBase64 || existingProject?.notificationIconBase64 || '',
+             appIconBase64: appIconBase64 || existingProject?.appIconBase64 || '',
+             splashBackgroundColor: enableCustomSplash ? splashConfig.backgroundColor : (enableSplashColor ? splashConfig.backgroundColor : null),
              splashIconSize: enableCustomSplash ? splashConfig.iconSize : null,
              splashAnimation: enableCustomSplash ? splashConfig.animation : null
           })
@@ -264,7 +385,11 @@ export default function ProjectForm({ user }: ProjectFormProps) {
       }
       
     } catch (err: any) {
-      setError(err.message || 'Failed to create project.');
+      if (err?.message?.includes('Quota limit exceeded')) {
+        setError('Firebase Quota Reached: Your free daily limit has been exceeded. Please wait until tomorrow or use a different Firebase project.');
+      } else {
+        setError(err.message || 'Failed to create project.');
+      }
       setLoading(false);
     }
   };
@@ -393,6 +518,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                      <input 
                        type="file" 
                        accept="image/png, image/jpeg" 
+                       onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
                        onChange={handleIconChange}
                        className="absolute inset-0 opacity-0 cursor-pointer z-10"
                      />
@@ -413,9 +539,9 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                         )}
                      </div>
                   </div>
-                  {appIconBase64 && (
+                  { (appIconBase64 || existingProject?.appIconUrl) && (
                     <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-xl shadow-slate-900/5 border border-slate-200 shrink-0 bg-white items-center justify-center flex animate-in zoom-in-50 duration-500">
-                      <img src={appIconBase64} alt="App icon preview" className="w-full h-full object-cover" />
+                      <img src={appIconBase64 || existingProject?.appIconUrl} alt="App icon preview" className="w-full h-full object-cover" />
                     </div>
                   )}
                 </div>
@@ -505,6 +631,45 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                       </div>
                     </div>
                   </button>
+                </div>
+              )}
+
+              {!enableCustomSplash && (
+                <div className="space-y-3 pt-2">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                     <input 
+                        type="checkbox"
+                        checked={enableSplashColor}
+                        onChange={(e) => setEnableSplashColor(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                     />
+                     <span className="text-xs font-bold text-slate-700 uppercase tracking-widest group-hover:text-slate-900 transition-colors">
+                       Just Set Background Color
+                     </span>
+                  </label>
+
+                  {enableSplashColor && (
+                    <div className="flex flex-col gap-2 pl-7 pt-1 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <p className="text-[10px] text-slate-500 font-medium tracking-wide">Use a custom color without animations or resizing.</p>
+                      <div className="flex items-center gap-3">
+                        <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-slate-200 flex-shrink-0 shadow-sm">
+                          <input
+                            type="color"
+                            value={splashConfig.backgroundColor}
+                            onChange={(e) => setSplashConfig({ ...splashConfig, backgroundColor: e.target.value })}
+                            className="absolute -inset-2 w-14 h-14 cursor-pointer"
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          value={splashConfig.backgroundColor}
+                          onChange={(e) => setSplashConfig({ ...splashConfig, backgroundColor: e.target.value })}
+                          className="w-32 h-10 px-3 border border-slate-200 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none uppercase font-mono shadow-sm"
+                          placeholder="#FFFFFF"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -625,6 +790,7 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                          <input 
                            type="file" 
                            accept=".json" 
+                           onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
                            onChange={handleGoogleServicesChange}
                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
                          />
@@ -659,6 +825,89 @@ export default function ProjectForm({ user }: ProjectFormProps) {
                       <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${askNotificationsOnLaunch ? 'translate-x-3.5' : ''} shadow-sm`} />
                     </div>
                   </button>
+
+                  <div className="space-y-2 pt-4 border-t border-slate-100">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1 leading-relaxed">
+                      Push Notification Icon (Optional)
+                      <span className="block text-[10px] font-medium text-slate-500 normal-case tracking-normal mt-0.5 mb-2">Recommended: 96x96 transparent PNG or Android Vector Drawable (.xml). Used for the small Android status bar icon.</span>
+                    </label>
+                    <div className="flex items-center gap-3 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowNotificationStudio(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-colors text-[11px] font-bold shadow-sm border border-slate-200"
+                      >
+                        <Wrench size={14} /> Open Push Icon Studio
+                      </button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="flex-1 w-full space-y-2 relative">
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <div className="flex-1 h-12 flex items-center bg-slate-50 border border-slate-200 rounded-xl overflow-hidden focus-within:border-blue-500 transition-all hover:bg-white group shadow-sm relative cursor-pointer">
+                            <input 
+                              type="file" 
+                              accept="image/png" 
+                              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
+                              onChange={handleNotificationIconChange}
+                              className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                            />
+                            <div className="flex items-center w-full px-3 gap-2">
+                              <div className="px-3 py-1.5 bg-blue-950 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest group-hover:bg-slate-900 transition-colors shrink-0">Upload PNG</div>
+                              <span className="text-[10px] font-mono font-bold text-slate-500 truncate opacity-70 group-hover:opacity-100 transition-opacity flex-1">
+                                {notificationIconName && !notificationIconName.toLowerCase().endsWith('.xml') ? notificationIconName : 'PNG File'}
+                              </span>
+                              {notificationIconName && !notificationIconName.toLowerCase().endsWith('.xml') && (
+                                <button 
+                                  type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearNotificationIcon(); }}
+                                  className="relative z-20 p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all active:scale-90"
+                                >
+                                  <X size={14} strokeWidth={3} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex-1 h-12 flex items-center bg-slate-50 border border-slate-200 rounded-xl overflow-hidden focus-within:border-blue-500 transition-all hover:bg-white group shadow-sm relative cursor-pointer">
+                            <input 
+                              type="file" 
+                              accept=".xml, text/xml, application/xml" 
+                              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
+                              onChange={handleNotificationIconChange}
+                              className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                            />
+                            <div className="flex items-center w-full px-3 gap-2">
+                              <div className="px-3 py-1.5 bg-blue-950 text-white rounded-lg text-[9px] font-bold uppercase tracking-widest group-hover:bg-slate-900 transition-colors shrink-0">Upload XML</div>
+                              <span className="text-[10px] font-mono font-bold text-slate-500 truncate opacity-70 group-hover:opacity-100 transition-opacity flex-1">
+                                {notificationIconName?.toLowerCase().endsWith('.xml') ? notificationIconName : 'XML File'}
+                              </span>
+                              {notificationIconName?.toLowerCase().endsWith('.xml') && (
+                                <button 
+                                  type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearNotificationIcon(); }}
+                                  className="relative z-20 p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all active:scale-90"
+                                >
+                                  <X size={14} strokeWidth={3} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {notificationIconBase64 && (
+                        <div className="relative group shrink-0">
+                          <div className="w-12 h-12 rounded-xl overflow-hidden shadow-sm border border-slate-200 shrink-0 bg-slate-800 p-2 items-center justify-center flex animate-in zoom-in-50 duration-500">
+                            {notificationIconName?.toLowerCase().endsWith('.xml') || notificationIconBase64.includes('xml') ? (
+                              <AndroidXMLPreview xmlBase64={notificationIconBase64} />
+                            ) : (
+                              <img src={notificationIconBase64} alt="Notification preview" className="w-full h-full object-contain" />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -696,6 +945,18 @@ export default function ProjectForm({ user }: ProjectFormProps) {
         onUpdate={(cfg) => setSplashConfig(cfg)}
         iconBase64={appIconBase64}
       />
+
+      {showNotificationStudio && (
+        <NotificationIconStudio
+          onClose={() => setShowNotificationStudio(false)}
+          onApply={(base64, name) => {
+            setNotificationIconBase64(base64);
+            setNotificationIconName(name);
+            setShowNotificationStudio(false);
+          }}
+          initialImage={notificationIconBase64}
+        />
+      )}
     </motion.div>
   );
 }
