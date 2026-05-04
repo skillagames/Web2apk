@@ -222,6 +222,11 @@ RUN mkdir /dummy_app && cd /dummy_app \\
         splashAnimation
       } = req.body;
       
+      const safeAppName = (appName || '').replace(/[^a-zA-Z0-9]/g, '_') || 'My_App';
+      const safePackageName = (packageName || '').trim() || 'com.web2apk.app';
+      const safeVersionCode = parseInt(versionCode) || 1;
+      const safeVersionName = versionName || '1.0.0';
+
       let rawBase64Icon = '';
       if (appIconBase64) {
          rawBase64Icon = appIconBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -312,27 +317,19 @@ RUN mkdir /dummy_app && cd /dummy_app \\
          const configureScriptStr = `const fs = require('fs');
 const path = require('path');
 
-let finalPackageName = "\\\${safePackageName}";
-if (fs.existsSync('android/app/google-services.json')) {
-   try {
-      const gs = JSON.parse(fs.readFileSync('android/app/google-services.json', 'utf8'));
-      if (gs.client && gs.client[0] && gs.client[0].client_info && gs.client[0].client_info.android_client_info) {
-         finalPackageName = gs.client[0].client_info.android_client_info.package_name;
-      }
-   } catch (e) {}
-}
+let finalPackageName = "${safePackageName}";
 
 const varFile = 'android/variables.gradle';
 if (fs.existsSync(varFile)) {
    console.log('Modifying variables.gradle');
    let c = fs.readFileSync(varFile, 'utf8');
-   c = c.replace(/minSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'minSdkVersion = 24');
-   c = c.replace(/compileSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'compileSdkVersion = 35');
-   c = c.replace(/targetSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'targetSdkVersion = 34');
-   c = c.replace(/compileSdk\\\\s*=?\\\\s*\\\\d+/g, 'compileSdk = 35');
-   c = c.replace(/targetSdk\\\\s*=?\\\\s*\\\\d+/g, 'targetSdk = 34');
-   c = c.replace(/androidxCoreVersion\\\\s*=?\\\\s*['"][\\\\d\\\\.]+['"]/g, "androidxCoreVersion = '1.15.0'");
-   c = c.replace(/androidxCoreKtxVersion\\\\s*=?\\\\s*['"][\\\\d\\\\.]+['"]/g, "androidxCoreKtxVersion = '1.15.0'");
+   c = c.replace(/minSdkVersion\\s*=?\\s*\\d+/g, 'minSdkVersion = 24');
+   c = c.replace(/compileSdkVersion\\s*=?\\s*\\d+/g, 'compileSdkVersion = 35');
+   c = c.replace(/targetSdkVersion\\s*=?\\s*\\d+/g, 'targetSdkVersion = 34');
+   c = c.replace(/compileSdk\\s*=?\\s*\\d+/g, 'compileSdk = 35');
+   c = c.replace(/targetSdk\\s*=?\\s*\\d+/g, 'targetSdk = 34');
+   c = c.replace(/androidxCoreVersion\\s*=?\\s*['"][\\d\\.]+['"]/g, "androidxCoreVersion = '1.15.0'");
+   c = c.replace(/androidxCoreKtxVersion\\s*=?\\s*['"][\\d\\.]+['"]/g, "androidxCoreKtxVersion = '1.15.0'");
    
    fs.writeFileSync(varFile, c);
 } else {
@@ -343,17 +340,17 @@ const projGradle = 'android/build.gradle';
 if (fs.existsSync(projGradle)) {
    console.log('Modifying build.gradle');
    let c = fs.readFileSync(projGradle, 'utf8');
-   c = c.replace(/classpath\\\\s*\\\\(?['"]com\\\\.android\\\\.tools\\\\.build:gradle:[\\\\d\\\\.]+['"]\\\\)?/, "classpath 'com.android.tools.build:gradle:8.7.2'");
-   c = c.replace(/id\\\\s*\\\\(?['"]com\\\\.android\\\\.application['"]\\\\)?\\\\s*version\\\\s*['"][\\\\d\\\\.]+['"]/, 'id "com.android.application" version "8.7.2"');
+   c = c.replace(/classpath\\s*\\(?['"]com\\.android\\.tools\\.build:gradle:[\\d\\.]+['"]\\)?/, "classpath 'com.android.tools.build:gradle:8.7.2'");
+   c = c.replace(/id\\s*\\(?['"]com\\.android\\.application['"]\\)?\\s*version\\s*['"][\\d\\.]+['"]/, 'id "com.android.application" version "8.7.2"');
    
    if (fs.existsSync('android/app/google-services.json')) {
       console.log('Adding google-services classpath');
       if (!c.includes('com.google.gms:google-services')) {
-         c = c.replace(/dependencies\\\\s*{/, 'dependencies {' + String.fromCharCode(10) + '        classpath "com.google.gms:google-services:4.4.1"');
+         c = c.replace(/dependencies\\s*{/, 'dependencies {' + String.fromCharCode(10) + '        classpath "com.google.gms:google-services:4.4.1"');
       }
    }
    if (!c.includes('resolutionStrategy')) {
-      c += "\\\\nallprojects {\\\\n    configurations.all {\\\\n        resolutionStrategy {\\\\n            force 'androidx.core:core:1.15.0'\\\\n            force 'androidx.core:core-ktx:1.15.0'\\\\n        }\\\\n    }\\\\n}\\\\n";
+      c += "\\nallprojects {\\n    configurations.all {\\n        resolutionStrategy {\\n            force 'androidx.core:core:1.15.0'\\n            force 'androidx.core:core-ktx:1.15.0'\\n        }\\n    }\\n}\\n";
    }
    fs.writeFileSync(projGradle, c);
 } else {
@@ -364,21 +361,21 @@ const appGradle = 'android/app/build.gradle';
 if (fs.existsSync(appGradle)) {
    console.log('Modifying app/build.gradle');
    let c = fs.readFileSync(appGradle, 'utf8');
-   c = c.replace(/compileSdk\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'compileSdk 35');
-   c = c.replace(/targetSdk\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'targetSdk 34');
-   c = c.replace(/compileSdkVersion\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'compileSdkVersion 35');
-   c = c.replace(/targetSdkVersion\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'targetSdkVersion 34');
-   c = c.replace(/compileSdk\\\\s*=\\\\s*\\\\d+/g, 'compileSdk = 35');
-   c = c.replace(/targetSdk\\\\s*=\\\\s*\\\\d+/g, 'targetSdk = 34');
+   c = c.replace(/compileSdk\\s*\\(?\\s*\\d+\\s*\\)?/g, 'compileSdk 35');
+   c = c.replace(/targetSdk\\s*\\(?\\s*\\d+\\s*\\)?/g, 'targetSdk 34');
+   c = c.replace(/compileSdkVersion\\s*\\(?\\s*\\d+\\s*\\)?/g, 'compileSdkVersion 35');
+   c = c.replace(/targetSdkVersion\\s*\\(?\\s*\\d+\\s*\\)?/g, 'targetSdkVersion 34');
+   c = c.replace(/compileSdk\\s*=\\s*\\d+/g, 'compileSdk = 35');
+   c = c.replace(/targetSdk\\s*=\\s*\\d+/g, 'targetSdk = 34');
 
    if (fs.existsSync('android/app/google-services.json')) {
       if (!c.includes('com.google.gms.google-services')) {
          c += String.fromCharCode(10) + "apply plugin: 'com.google.gms.google-services'" + String.fromCharCode(10);
       }
    }
-   c = c.replace(/applicationId\\\\s+"[^"]+"/, 'applicationId "' + finalPackageName + '"');
+   c = c.replace(/\\bapplicationId\\s*=?\\s*[^\\n\\r]+/g, 'applicationId "' + finalPackageName + '"');
    if (c.includes('namespace ')) {
-      c = c.replace(/namespace\\\\s+"[^"]+"/, 'namespace "' + finalPackageName + '"');
+      c = c.replace(/\\bnamespace\\s*=?\\s*[^\\n\\r]+/g, 'namespace "' + finalPackageName + '"');
    }
    
    fs.writeFileSync(appGradle, c);
@@ -388,13 +385,13 @@ const tomlFile = 'android/gradle/libs.versions.toml';
 if (fs.existsSync(tomlFile)) {
    console.log('Modifying libs.versions.toml');
    let c = fs.readFileSync(tomlFile, 'utf8');
-   c = c.replace(/compileSdk\\\\s*=\\\\s*["']?\\\\d+["']?/g, 'compileSdk = "35"');
-   c = c.replace(/targetSdk\\\\s*=\\\\s*["']?\\\\d+["']?/g, 'targetSdk = "34"');
-   c = c.replace(/agp\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'agp = "8.7.2"');
-   c = c.replace(/coreKtx\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'coreKtx = "1.15.0"');
-   c = c.replace(/androidxCore\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'androidxCore = "1.15.0"');
-   c = c.replace(/androidx-core\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'androidx-core = "1.15.0"');
-   c = c.replace(/core\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'core = "1.15.0"');
+   c = c.replace(/compileSdk\\s*=\\s*["']?\\d+["']?/g, 'compileSdk = "35"');
+   c = c.replace(/targetSdk\\s*=\\s*["']?\\d+["']?/g, 'targetSdk = "34"');
+   c = c.replace(/agp\\s*=\\s*['"][\\d\\.]+['"]/g, 'agp = "8.7.2"');
+   c = c.replace(/coreKtx\\s*=\\s*['"][\\d\\.]+['"]/g, 'coreKtx = "1.15.0"');
+   c = c.replace(/androidxCore\\s*=\\s*['"][\\d\\.]+['"]/g, 'androidxCore = "1.15.0"');
+   c = c.replace(/androidx-core\\s*=\\s*['"][\\d\\.]+['"]/g, 'androidx-core = "1.15.0"');
+   c = c.replace(/core\\s*=\\s*['"][\\d\\.]+['"]/g, 'core = "1.15.0"');
    fs.writeFileSync(tomlFile, c);
 }
 
@@ -402,7 +399,7 @@ const gradleWrapper = 'android/gradle/wrapper/gradle-wrapper.properties';
 if (fs.existsSync(gradleWrapper)) {
    console.log('Modifying gradle-wrapper.properties');
    let c = fs.readFileSync(gradleWrapper, 'utf8');
-   c = c.replace(/gradle-[\\\\d\\\\.]+-(all|bin)\\\\.zip/, 'gradle-8.10.2-all.zip');
+   c = c.replace(/gradle-[\\d\\.]+-(all|bin)\\.zip/, 'gradle-8.11.1-all.zip');
    fs.writeFileSync(gradleWrapper, c);
 }
 
@@ -417,7 +414,7 @@ if (fs.existsSync(configJsonPath)) {
 }
 
 config.appId = finalPackageName;
-config.appName = "\\\${appName}";
+config.appName = "${safeAppName}";
 config.webDir = config.webDir || 'dist';
 
 config.android = config.android || {};
@@ -474,7 +471,7 @@ if (mainActivityPath) {
     let needsOnCreate = true; // process.argv[8] === 'true' || process.argv[3] === 'true';
     if (needsOnCreate) {
         if (!javaCode.includes('import android.os.Build;')) {
-             javaCode = javaCode.replace(/(import [^;]+;)/, '\$1\\\\nimport android.os.Build;\\\\nimport android.os.Bundle;\\\\nimport androidx.core.content.ContextCompat;\\\\nimport androidx.core.app.ActivityCompat;\\\\nimport android.app.NotificationChannel;\\\\nimport android.app.NotificationManager;\\\\nimport android.content.Context;');
+             javaCode = javaCode.replace(/(import [^;]+;)/, '\$1\\nimport android.os.Build;\\nimport android.os.Bundle;\\nimport androidx.core.content.ContextCompat;\\nimport androidx.core.app.ActivityCompat;\\nimport android.app.NotificationChannel;\\nimport android.app.NotificationManager;\\nimport android.content.Context;');
         }
         if (!javaCode.includes('public void onCreate(')) {
              let onCreateLogic = \\\`
@@ -509,10 +506,25 @@ if (mainActivityPath) {
             try {
                 android.webkit.WebView webView = new android.webkit.WebView(this);
                 webView.clearCache(true);
+                android.webkit.WebStorage.getInstance().deleteAllData();
             } catch (Exception e) {}
         }
 
         super.onCreate(savedInstanceState);
+
+        if (${fullscreen ? 'false' : 'true'}) {
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        }
+
+        if (savedBuildTime != currentBuildTime) {
+            final android.webkit.WebView webView = getBridge().getWebView();
+            webView.post(new Runnable() {
+                @Override
+                public void run() {
+                    webView.evaluateJavascript("if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){for(var i=0;i<r.length;i++)r[i].unregister();});} if('caches' in window){caches.keys().then(function(k){Promise.all(k.map(function(c){return caches.delete(c);}));});} location.reload(true);", null);
+                }
+            });
+        }
 \\\`;
              if (process.argv[8] === 'true') {
                  onCreateLogic += \\\`
@@ -537,7 +549,7 @@ if (mainActivityPath) {
              }
              onCreateLogic += \\\`    }
 \\\`;
-             javaCode = javaCode.replace(/public class MainActivity extends BridgeActivity \\\\{/, 'public class MainActivity extends BridgeActivity {' + onCreateLogic);
+             javaCode = javaCode.replace(/public class MainActivity extends BridgeActivity \\{/, 'public class MainActivity extends BridgeActivity {' + onCreateLogic);
         }
     }
 
@@ -554,6 +566,51 @@ if (process.argv[3] === 'true') {
    config.plugins.LocalNotifications.smallIcon = 'ic_launcher';
 }
 
+const resDir = path.join('android', 'app', 'src', 'main', 'res');
+if (fs.existsSync(resDir)) {
+    const dirs = fs.readdirSync(resDir);
+    dirs.forEach(d => {
+        if (d.startsWith('values')) {
+            const stylesPath = path.join(resDir, d, 'styles.xml');
+            if (fs.existsSync(stylesPath)) {
+              let content = fs.readFileSync(stylesPath, 'utf8');
+              if (content.includes('name="AppTheme.NoActionBarLaunch"')) {
+                  const splashInjection = "\\n" +
+            '        <item name="windowSplashScreenBackground">' + blendColor + '</item>\\n' +
+            '        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>\\n      ';
+                  content = content.replace(/(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
+                      if (!p1.includes('windowSplashScreenBackground')) {
+                          p1 = p1 + splashInjection;
+                      }
+                      return p1 + p2;
+                  });
+              }
+              ['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'].forEach(theme => {
+                  const regexStr = '(<style name="' + theme + '"[^>]*>[\\s\\S]*?)(<\\/style>)';
+                  const regex = new RegExp(regexStr);
+                  content = content.replace(regex, (match, p1, p2) => {
+                      if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
+                          p1 = p1 + '\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\\n      ';
+                      }
+                      return p1 + p2;
+                  });
+              });
+              if (process.argv[6] === 'true') {
+                  if (content.includes('name="AppTheme.NoActionBar"')) {
+                      const fullscreenInjection = '\\n        <item name="android:windowFullscreen">true</item>\\n      ';
+                      content = content.replace(/(<style name="AppTheme\\.NoActionBar"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
+                          if (!p1.includes('android:windowFullscreen')) {
+                              p1 = p1 + fullscreenInjection;
+                          }
+                          return p1 + p2;
+                      });
+                  }
+              }
+              fs.writeFileSync(stylesPath, content);
+            }
+        }
+    });
+}
 fs.writeFileSync(configJsonPath, JSON.stringify(config, null, 2));
 `;
          const configScriptFile = bucket.file(`builds/${projectId}/configure_build.cjs`);
@@ -564,11 +621,6 @@ fs.writeFileSync(configJsonPath, JSON.stringify(config, null, 2));
          console.warn("Could not handle storage bucket operations for configure script.", err);
       }
 
-      const safeAppName = appName.replace(/[^a-zA-Z0-9]/g, '_') || 'My_App';
-      const safePackageName = packageName.trim() || 'com.web2apk.app';
-      const safeVersionCode = parseInt(versionCode) || 1;
-      const safeVersionName = versionName || '1.0.0';
-      
       const builderImage = `gcr.io/${gcpProjectId}/android-builder:v29`;
       const cachePath = `gs://${storageBucketName}/cache/v1/${projectId}/cache.tar.gz`;
 
@@ -707,9 +759,9 @@ fi`
             '-c',
             `set -ex
              npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7 @capacitor/toast@7 @capacitor/status-bar@7 || true
-             rm -rf android
-             rm -f capacitor.config.*
-             npx cap init "${safeAppName}" "${safePackageName}" --web-dir dist
+             if [ ! -d "android" ]; then
+               npx cap init "${safeAppName}" "${safePackageName}" --web-dir dist
+             fi
              
              # CREATE CAPACITOR CONFIG BEFORE ADDING ANDROID
              node -e "
@@ -851,7 +903,7 @@ function updateStyles(file) {
 
   // Opt out of edge-to-edge globally for all themes
   ['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'].forEach(theme => {
-      const regexStr = '(<style name="' + theme + '"[^>]*>[\\\\s\\\\S]*?)(<\\\\/style>)';
+      const regexStr = '(<style name="' + theme + '"[^>]*>[\\s\\S]*?)(<\\/style>)';
       const regex = new RegExp(regexStr);
       content = content.replace(regex, (match, p1, p2) => {
           if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
@@ -1144,7 +1196,10 @@ npx cap sync android`
           'GRADLE_USER_HOME=/workspace/.gradle_home'
         ],
         entrypoint: 'bash',
-        args: ['-c', './gradlew clean assembleDebug --no-daemon --stacktrace']
+        args: [
+          '-c', 
+          'wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip -O /tmp/gradle.zip && unzip -q /tmp/gradle.zip -d /tmp/ && /tmp/gradle-8.11.1/bin/gradle clean assembleDebug --no-daemon --stacktrace'
+        ]
       });
 
       buildSteps.push({

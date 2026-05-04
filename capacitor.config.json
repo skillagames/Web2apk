@@ -1,6 +1,6 @@
 {
-  "appId": "com.test.app",
-  "appName": "test",
+  "appId": "com.dummy.app",
+  "appName": "dummy",
   "webDir": "www",
   "plugins": {
     "SplashScreen": {

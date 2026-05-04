@@ -1,13 +1,20 @@
-const fs = require('fs');
-const execSync = require('child_process').execSync;
-const os = require('os');
-const path = require('path');
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cap-test-'));
-process.chdir(tmpDir);
-execSync('npm init -y', {stdio:'ignore'});
-execSync('npm install @capacitor/cli@7 @capacitor/core@7 @capacitor/android@7', {stdio:'ignore'});
-execSync('npx cap init test com.test.app --web-dir www', {stdio:'ignore'});
-fs.mkdirSync('www');
-fs.writeFileSync('www/index.html', '1');
-execSync('npx cap add android', {stdio:'ignore'});
-console.log(fs.readFileSync('android/app/src/main/res/values/styles.xml', 'utf8'));
+const content = `
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+`;
+let newContent = content;
+['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'].forEach(theme => {
+      const regexStr = '(<style name="' + theme + '"[^>]*>[\\s\\S]*?)(<\\/style>)';
+      const regex = new RegExp(regexStr);
+      newContent = newContent.replace(regex, (match, p1, p2) => {
+          if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
+              p1 = p1 + '\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\n      ';
+          }
+          return p1 + p2;
+      });
+  });
+console.log(newContent);

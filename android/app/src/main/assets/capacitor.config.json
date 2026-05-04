@@ -1,7 +1,7 @@
 {
 	"appId": "com.test.app",
-	"appName": "test",
-	"webDir": "www",
+	"appName": "testapp",
+	"webDir": "dist",
 	"plugins": {
 		"SplashScreen": {
 			"launchShowDuration": 3000,

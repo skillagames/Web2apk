@@ -1,0 +1,1 @@
+c = "applicationId \"com.dummy\"".replace(/applicationId\s+"[^"]+"/, "test"); console.log(c);

@@ -4,7 +4,7 @@ android {
     namespace = "com.dummy.tmp"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "${safePackageName}"
+        applicationId "com.test.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
