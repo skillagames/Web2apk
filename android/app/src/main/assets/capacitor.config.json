@@ -5,14 +5,14 @@
 	"plugins": {
 		"SplashScreen": {
 			"launchShowDuration": 500,
-			"launchAutoHide": false,
+			"launchAutoHide": true,
 			"backgroundColor": "#ffffff",
 			"splashIconSize": 50,
 			"splashAnimation": "fade",
 			"androidScaleType": "CENTER_CROP",
 			"showSpinner": false,
-			"splashFullScreen": true,
-			"splashImmersive": true
+			"splashFullScreen": false,
+			"splashImmersive": false
 		},
 		"LocalNotifications": {
 			"smallIcon": "ic_launcher"

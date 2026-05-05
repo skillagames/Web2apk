@@ -430,7 +430,8 @@ config.plugins.SplashScreen = {
   splashAnimation: process.argv[5] || 'fade',
   androidScaleType: 'CENTER_CROP',
   showSpinner: false,
-  splashFullScreen: process.argv[6] === 'true'
+  splashFullScreen: false,
+  splashImmersive: false
 };
 
 const blendColor = process.argv[2] || '#ffffff';
@@ -513,7 +514,6 @@ if (mainActivityPath) {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        getWindow().setDecorFitsSystemWindows(true);
         super.onCreate(savedInstanceState);
 \\\`;
              if (process.argv[8] === 'true') {
@@ -807,15 +807,16 @@ function updateStyles(file) {
   if (!fs.existsSync(file)) return;
   let content = fs.readFileSync(file, 'utf8');
   
+  // Replace Theme.SplashScreen with AppTheme.NoActionBar to avoid forced edge-to-edge
+  content = content.replace('parent="Theme.SplashScreen"', 'parent="AppTheme.NoActionBar"');
+
   // Fix Splash Screen Background
   if (content.includes('name="AppTheme.NoActionBarLaunch"')) {
-      const splashInjection = "\n" +
-'        <item name="android:windowLayoutInDisplayCutoutMode">never</item>\n' +
-'        <item name="android:windowFullscreen">false</item>\n' +
-'        <item name="windowSplashScreenBackground">' + bgColor + '</item>\n' +
-'        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>\n      ';
+      const splashInjection = "\\n" +
+'        <item name="windowSplashScreenBackground">' + bgColor + '</item>\\n' +
+'        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>\\n      ';
 
-      content = content.replace(/(<style name="AppTheme\.NoActionBarLaunch"[^>]*>[\s\S]*?)(<\/style>)/, (match, p1, p2) => {
+      content = content.replace(/(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
           if (!p1.includes('windowSplashScreenBackground')) {
               p1 = p1 + splashInjection;
           }
@@ -823,17 +824,24 @@ function updateStyles(file) {
       });
   }
 
-  // Opt out of edge-to-edge globally for all themes
-  ['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'].forEach(theme => {
-      const regexStr = '(<style name="' + theme + '"[^>]*>[\\\\s\\\\S]*?)(<\\\\/style>)';
+  // Fix starting out drawn underneath status bar by applying fitsSystemWindows to splash theme
+  if (content.includes('name="AppTheme.NoActionBarLaunch"')) {
+      const regexStr = '(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)';
       const regex = new RegExp(regexStr);
       content = content.replace(regex, (match, p1, p2) => {
+          let injection = '';
+          if (!p1.includes('android:fitsSystemWindows')) {
+              injection += '\\n        <item name="android:fitsSystemWindows">true</item>';
+          }
           if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
-              p1 = p1 + '\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\\n      ';
+              injection += '\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>';
+          }
+          if (injection.length > 0) {
+              p1 = p1 + injection + '\\n      ';
           }
           return p1 + p2;
       });
-  });
+  }
 
   // Handle Fullscreen UI
   if (isFullscreen) {
