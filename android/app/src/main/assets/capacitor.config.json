@@ -1,18 +1,18 @@
 {
 	"appId": "com.test.app",
-	"appName": "testapp",
+	"appName": "test",
 	"webDir": "dist",
 	"plugins": {
 		"SplashScreen": {
-			"launchShowDuration": 3000,
-			"launchAutoHide": true,
+			"launchShowDuration": 500,
+			"launchAutoHide": false,
 			"backgroundColor": "#ffffff",
 			"splashIconSize": 50,
 			"splashAnimation": "fade",
 			"androidScaleType": "CENTER_CROP",
 			"showSpinner": false,
-			"splashFullScreen": false,
-			"splashImmersive": false
+			"splashFullScreen": true,
+			"splashImmersive": true
 		},
 		"LocalNotifications": {
 			"smallIcon": "ic_launcher"
