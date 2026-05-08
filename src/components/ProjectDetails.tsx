@@ -555,6 +555,32 @@ export default function ProjectDetails({ user }: ProjectDetailsProps) {
               </div>
             </div>
 
+            <div className="pt-8 border-t border-slate-100 bg-slate-50/30 p-4 -m-4 mt-6 rounded-[32px]">
+              <div className="mb-4">
+                 <h3 className="text-[13px] font-display font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                   <FileCode2 size={16} className="text-blue-600" />
+                   Startup Guidance
+                 </h3>
+                 <p className="text-[10px] font-bold text-slate-400 mt-1 leading-relaxed">Ensure your app initializes properly on first launch.</p>
+              </div>
+              <div className="space-y-4">
+                <div className="p-3.5 bg-white border border-slate-200/60 rounded-2xl shadow-sm">
+                   <p className="text-[10px] font-semibold text-slate-700 leading-relaxed mb-2">
+                     <strong className="text-blue-700">Preventing Black Screens:</strong> We've synced your Android backgrounds, but you must manually hide the splash screen in your app code after the Firebase handshake is complete:
+                   </p>
+                   <pre className="text-[9px] bg-slate-900 text-slate-300 p-2.5 rounded-xl font-mono overflow-x-auto">
+{`import { SplashScreen } from '@capacitor/splash-screen';
+
+// Inside your main init effect
+onAuthStateChanged(auth, (user) => {
+  // Wait for auth & data
+  SplashScreen.hide();
+});`}
+                   </pre>
+                </div>
+              </div>
+            </div>
+
             <div className="pt-6 border-t border-slate-100/60">
                <div className="mb-4">
                   <h2 className="text-[15px] font-display font-bold text-slate-900 tracking-tight">Enabled Permissions</h2>

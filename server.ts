@@ -420,21 +420,23 @@ config.appId = finalPackageName;
 config.appName = "\\\${appName}";
 config.webDir = config.webDir || 'dist';
 
+const blendColor = process.argv[2] || '#ffffff';
+config.backgroundColor = blendColor;
+
 config.plugins = config.plugins || {};
 config.plugins.SplashScreen = {
-  launchShowDuration: 2000,
-  launchAutoHide: true,
-  backgroundColor: '#ffffff',
+  launchShowDuration: 10000,
+  launchAutoHide: false,
+  backgroundColor: blendColor,
   androidSplashResourceName: "splash",
   splashIconSize: parseInt(process.argv[4]) || 50,
   splashAnimation: process.argv[5] || 'fade',
   androidScaleType: 'CENTER_CROP',
   showSpinner: false,
   splashFullScreen: false,
-  splashImmersive: false
+  useDialog: false
 };
 
-const blendColor = process.argv[2] || '#ffffff';
 let isLight = true;
 try {
     var hex = blendColor.replace('#', '');
@@ -472,74 +474,104 @@ if (mainActivityPath) {
     let needsOnCreate = true; // process.argv[8] === 'true' || process.argv[3] === 'true';
     if (needsOnCreate) {
         if (!javaCode.includes('import android.os.Build;')) {
-             javaCode = javaCode.replace(/(import [^;]+;)/, '\$1\\\\nimport android.os.Build;\\\\nimport android.os.Bundle;\\\\nimport androidx.core.content.ContextCompat;\\\\nimport androidx.core.app.ActivityCompat;\\\\nimport android.app.NotificationChannel;\\\\nimport android.app.NotificationManager;\\\\nimport android.content.Context;');
+             javaCode = javaCode.replace(/(import [^;]+;)/, '$1\\nimport android.os.Build;\\nimport android.os.Bundle;\\nimport androidx.core.content.ContextCompat;\\nimport androidx.core.app.ActivityCompat;\\nimport android.app.NotificationChannel;\\nimport android.app.NotificationManager;\\nimport android.content.Context;\\nimport android.graphics.Color;');
         }
         if (!javaCode.includes('public void onCreate(')) {
-             let onCreateLogic = \\\`
-    @Override
-    public void onStart() {
-        super.onStart();
-        android.content.SharedPreferences prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-        int currentVersionCode = 1;
-        try {
-            currentVersionCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
-        } catch (Exception e) {}
-        int savedVersionCode = prefs.getInt("version_code", -1);
-        if (savedVersionCode != currentVersionCode) {
-            if (this.bridge != null && this.bridge.getWebView() != null) {
-                this.bridge.getWebView().clearCache(true);
+            let onCreateLogic = [
+                "    @Override",
+                "    public void onResume() {",
+                "        super.onResume();",
+                "        // Ensure background color is set when activity comes to foreground",
+                "        if (this.bridge != null && this.bridge.getWebView() != null) {",
+                "            try {",
+                "                this.bridge.getWebView().setBackgroundColor(android.graphics.Color.parseColor(\"" + blendColor + "\"));",
+                "                this.bridge.getWebView().setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);",
+                "            } catch (Exception e) {}",
+                "        }",
+                "    }",
+                "",
+                "    @Override",
+                "    public void onStart() {",
+                "        super.onStart();",
+                "        // Set WebView background early to match splash/theme and prevent black flashes",
+                "        if (this.bridge != null && this.bridge.getWebView() != null) {",
+                "            try {",
+                "                this.bridge.getWebView().setBackgroundColor(android.graphics.Color.parseColor(\"" + blendColor + "\"));",
+                "            } catch (Exception e) {}",
+                "        }",
+                "        ",
+                "        android.util.Log.d(\"MainActivity\", \"onStart called - checking version for cache sync\");",
+                "        android.content.SharedPreferences prefs = getSharedPreferences(\"app_prefs\", Context.MODE_PRIVATE);",
+                "        int currentVersionCode = 1;",
+                "        try {",
+                "            currentVersionCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;",
+                "        } catch (Exception e) {}",
+                "        ",
+                "        int savedVersionCode = prefs.getInt(\"version_code\", -1);",
+                "        if (savedVersionCode != -1 && savedVersionCode != currentVersionCode) {",
+                "            // Only clear cache and workers if it's an UPGRADE vs a fresh install",
+                "            // This avoids disruptive startup behavior on the very first launch",
+                "            if (this.bridge != null && this.bridge.getWebView() != null) {",
+                "                this.bridge.getWebView().clearCache(true);",
+                "            }",
+                "            prefs.edit().putInt(\"version_code\", currentVersionCode).apply();",
+                "            try {",
+                "                java.io.File webViewDir = new java.io.File(getApplicationInfo().dataDir, \"app_webview\");",
+                "                if (webViewDir.exists()) {",
+                "                    java.io.File[] swDirs = {",
+                "                        new java.io.File(webViewDir, \"Default/Service Worker\"),",
+                "                        new java.io.File(webViewDir, \"Service Worker\")",
+                "                    };",
+                "                    for (java.io.File dir : swDirs) {",
+                "                        if (dir.exists()) {",
+                "                            String[] children = dir.list();",
+                "                            if (children != null) {",
+                "                                for (String child : children) {",
+                "                                    new java.io.File(dir, child).delete();",
+                "                                }",
+                "                            }",
+                "                            dir.delete();",
+                "                        }",
+                "                    }",
+                "                }",
+                "            } catch (Exception e) {}",
+                "        } else if (savedVersionCode == -1) {",
+                "            // Fresh install, just save the version",
+                "            prefs.edit().putInt(\"version_code\", currentVersionCode).apply();",
+                "        }",
+                "    }",
+                "",
+                "    @Override",
+                "    public void onCreate(Bundle savedInstanceState) {",
+                "        super.onCreate(savedInstanceState);",
+                ""
+            ].join("\n");
+            
+            if (process.argv[8] === 'true') {
+                onCreateLogic += [
+                    "        if (Build.VERSION.SDK_INT >= 33) {",
+                    "            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {",
+                    "                ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);",
+                    "            }",
+                    "        }",
+                    ""
+                ].join("\n");
             }
-            prefs.edit().putInt("version_code", currentVersionCode).apply();
-            try {
-                java.io.File webViewDir = new java.io.File(getApplicationInfo().dataDir, "app_webview");
-                if (webViewDir.exists()) {
-                    java.io.File swDir1 = new java.io.File(webViewDir, "Default/Service Worker");
-                    java.io.File swDir2 = new java.io.File(webViewDir, "Service Worker");
-                    java.io.File[] dirs = {swDir1, swDir2};
-                    for (java.io.File dir : dirs) {
-                        if (dir.exists()) {
-                            String[] children = dir.list();
-                            if (children != null) {
-                                for (String child : children) {
-                                    new java.io.File(dir, child).delete();
-                                }
-                            }
-                            dir.delete();
-                        }
-                    }
-                }
-            } catch (Exception e) {}
-        }
-    }
-
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-\\\`;
-             if (process.argv[8] === 'true') {
-                 onCreateLogic += \\\`
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);
+            if (process.argv[3] === 'true') {
+                onCreateLogic += [
+                    "        if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {",
+                    "            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);",
+                    "            NotificationChannel channel = new NotificationChannel(\"primary_notifications_v4\", \"Primary Notifications\", NotificationManager.IMPORTANCE_HIGH);",
+                    "            channel.setDescription(\"Main app notifications\");",
+                    "            if (notificationManager != null) {",
+                    "                notificationManager.createNotificationChannel(channel);",
+                    "            }",
+                    "        }",
+                    ""
+                ].join("\n");
             }
-        }
-\\\`;
-             }
-             if (process.argv[3] === 'true') {
-                 onCreateLogic += \\\`
-        if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            NotificationChannel channel = new NotificationChannel("primary_notifications_v4", "Primary Notifications", NotificationManager.IMPORTANCE_HIGH);
-            channel.setDescription("Main app notifications");
-            if (notificationManager != null) {
-                notificationManager.createNotificationChannel(channel);
-            }
-        }
-\\\`;
-             }
-             onCreateLogic += \\\`    }
-\\\`;
-             javaCode = javaCode.replace(/public class MainActivity extends BridgeActivity \\\\{/, 'public class MainActivity extends BridgeActivity {' + onCreateLogic);
+            onCreateLogic += "    }\n";
+            javaCode = javaCode.replace(/public class MainActivity extends BridgeActivity \{/, 'public class MainActivity extends BridgeActivity {' + onCreateLogic);
         }
     }
 
@@ -640,6 +672,7 @@ if (fs.existsSync(indexPath)) {
   }
   let headInject = '<link rel="icon" href="/icon.png">\\n' +
                    '<link rel="apple-touch-icon" href="/icon.png">\\n' +
+                   '<style>body{background-color:${splashBackgroundColor || '#ffffff'} !important;}</style>\\n' +
                    '<script>\\nwindow.APP_ICON_BASE64 = "' + appIconBase64 + '";\\n' +
                    'if ("serviceWorker" in navigator) {navigator.serviceWorker.getRegistrations().then(function(regs){for(var i=0;i<regs.length;i++){regs[i].unregister();}});}\\n' +
                    'if ("caches" in window) {caches.keys().then(function(keys){Promise.all(keys.map(function(k){return caches.delete(k);}));});}\\n' +
@@ -807,14 +840,13 @@ function updateStyles(file) {
   if (!fs.existsSync(file)) return;
   let content = fs.readFileSync(file, 'utf8');
   
-  // Replace Theme.SplashScreen with AppTheme.NoActionBar to avoid forced edge-to-edge
-  content = content.replace('parent="Theme.SplashScreen"', 'parent="AppTheme.NoActionBar"');
-
-  // Fix Splash Screen Background
+  // Fix Splash Screen Background and Root background to avoid black flash
   if (content.includes('name="AppTheme.NoActionBarLaunch"')) {
       const splashInjection = "\\n" +
 '        <item name="windowSplashScreenBackground">' + bgColor + '</item>\\n' +
-'        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>\\n      ';
+'        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>\\n' +
+'        <item name="android:windowBackground">' + bgColor + '</item>\\n' +
+'        <item name="android:background">' + bgColor + '</item>\\n      ';
 
       content = content.replace(/(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
           if (!p1.includes('windowSplashScreenBackground')) {
@@ -824,24 +856,29 @@ function updateStyles(file) {
       });
   }
 
-  // Fix starting out drawn underneath status bar by applying fitsSystemWindows to splash theme
-  if (content.includes('name="AppTheme.NoActionBarLaunch"')) {
-      const regexStr = '(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)';
+  // Ensure main background is also set
+  ['AppTheme', 'AppTheme.NoActionBar'].forEach(theme => {
+      const regexStr = '(<style name="' + theme + '"[^>]*>[\\\\s\\\\S]*?)(<\\\\/style>)';
       const regex = new RegExp(regexStr);
       content = content.replace(regex, (match, p1, p2) => {
-          let injection = '';
-          if (!p1.includes('android:fitsSystemWindows')) {
-              injection += '\\n        <item name="android:fitsSystemWindows">true</item>';
-          }
-          if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
-              injection += '\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>';
-          }
-          if (injection.length > 0) {
-              p1 = p1 + injection + '\\n      ';
+          if (!p1.includes('android:windowBackground')) {
+              p1 = p1 + '\\n        <item name="android:windowBackground">' + bgColor + '</item>\\n      ';
           }
           return p1 + p2;
       });
-  }
+  });
+
+  // Opt out of edge-to-edge globally for all themes
+  ['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'].forEach(theme => {
+      const regexStr = '(<style name="' + theme + '"[^>]*>[\\\\s\\\\S]*?)(<\\\\/style>)';
+      const regex = new RegExp(regexStr);
+      content = content.replace(regex, (match, p1, p2) => {
+          if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
+              p1 = p1 + '\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\\n      ';
+          }
+          return p1 + p2;
+      });
+  });
 
   // Handle Fullscreen UI
   if (isFullscreen) {
@@ -855,29 +892,7 @@ function updateStyles(file) {
           });
       }
   } else {
-      let isDarkColor = false;
-      try {
-          var hex = bgColor.replace('#', '');
-          if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
-          var r = parseInt(hex.substr(0, 2), 16), g = parseInt(hex.substr(2, 2), 16), b = parseInt(hex.substr(4, 2), 16);
-          var yiq = ((r*299)+(g*587)+(b*114))/1000;
-          isDarkColor = (yiq < 128);
-      } catch(e) {}
-      
-      const statusBarInject = '\\n        <item name="android:statusBarColor">' + bgColor + '</item>\\n        <item name="android:windowLightStatusBar">' + (!isDarkColor) + '</item>\\n        <item name="android:navigationBarColor">' + bgColor + '</item>\\n        <item name="android:windowLightNavigationBar">' + (!isDarkColor) + '</item>\\n      ';
-
-      content = content.replace(/(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
-          if (!p1.includes('android:statusBarColor')) {
-              p1 = p1 + statusBarInject;
-          }
-          return p1 + p2;
-      });
-      content = content.replace(/(<style name="AppTheme\\.NoActionBar"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
-          if (!p1.includes('android:statusBarColor')) {
-              p1 = p1 + statusBarInject;
-          }
-          return p1 + p2;
-      });
+      // Status bar and Navigation bar settings removed for testing
   }
 
   fs.writeFileSync(file, content);

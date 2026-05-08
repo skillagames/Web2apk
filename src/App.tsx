@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router';
+import { Routes, Route, Navigate } from 'react-router';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './lib/firebase';
+import { SplashScreen } from '@capacitor/splash-screen';
 import AuthScreen from './components/AuthScreen';
 import Dashboard from './components/Dashboard';
 import Projects from './components/Projects';
@@ -18,6 +19,13 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+      
+      // Hide native splash screen once initial auth state is resolved
+      try {
+        SplashScreen.hide();
+      } catch (e) {
+        // Silently fail in web environment
+      }
     });
     return () => unsubscribe();
   }, []);

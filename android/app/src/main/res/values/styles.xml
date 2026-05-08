@@ -14,16 +14,16 @@
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
         <item name="android:windowLayoutInDisplayCutoutMode">never</item>
-        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
-        <item name="android:fitsSystemWindows">true</item>
     </style>
 
 
-    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBar">
-        <item name="windowSplashScreenBackground">@color/colorPrimary</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>
-        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:fitsSystemWindows">true</item>
-        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">never</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
     </style>
 </resources>
