@@ -327,10 +327,10 @@ if (fs.existsSync(varFile)) {
    console.log('Modifying variables.gradle');
    let c = fs.readFileSync(varFile, 'utf8');
    c = c.replace(/minSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'minSdkVersion = 24');
-   c = c.replace(/compileSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'compileSdkVersion = 35');
-   c = c.replace(/targetSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'targetSdkVersion = 35');
-   c = c.replace(/compileSdk\\\\s*=?\\\\s*\\\\d+/g, 'compileSdk = 35');
-   c = c.replace(/targetSdk\\\\s*=?\\\\s*\\\\d+/g, 'targetSdk = 35');
+   c = c.replace(/compileSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'compileSdkVersion = 34');
+   c = c.replace(/targetSdkVersion\\\\s*=?\\\\s*\\\\d+/g, 'targetSdkVersion = 34');
+   c = c.replace(/compileSdk\\\\s*=?\\\\s*\\\\d+/g, 'compileSdk = 34');
+   c = c.replace(/targetSdk\\\\s*=?\\\\s*\\\\d+/g, 'targetSdk = 34');
    c = c.replace(/androidxCoreVersion\\\\s*=?\\\\s*['"][\\\\d\\\\.]+['"]/g, "androidxCoreVersion = '1.15.0'");
    c = c.replace(/androidxCoreKtxVersion\\\\s*=?\\\\s*['"][\\\\d\\\\.]+['"]/g, "androidxCoreKtxVersion = '1.15.0'");
    
@@ -353,7 +353,7 @@ if (fs.existsSync(projGradle)) {
       }
    }
    if (!c.includes('resolutionStrategy')) {
-      c += "\\\\nallprojects {\\\\n    configurations.all {\\\\n        resolutionStrategy {\\\\n            force 'androidx.core:core:1.15.0'\\\\n            force 'androidx.core:core-ktx:1.15.0'\\\\n        }\\\\n    }\\\\n}\\\\n";
+      c += "\\\\nallprojects {\\\\n    configurations.all {\\\\n        resolutionStrategy {\\\\n            force 'androidx.core:core:1.12.0'\\\\n            force 'androidx.core:core-ktx:1.12.0'\\\\n        }\\\\n    }\\\\n}\\\\n";
    }
    fs.writeFileSync(projGradle, c);
 } else {
@@ -364,12 +364,12 @@ const appGradle = 'android/app/build.gradle';
 if (fs.existsSync(appGradle)) {
    console.log('Modifying app/build.gradle');
    let c = fs.readFileSync(appGradle, 'utf8');
-   c = c.replace(/compileSdk\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'compileSdk 35');
-   c = c.replace(/targetSdk\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'targetSdk 35');
-   c = c.replace(/compileSdkVersion\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'compileSdkVersion 35');
-   c = c.replace(/targetSdkVersion\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'targetSdkVersion 35');
-   c = c.replace(/compileSdk\\\\s*=\\\\s*\\\\d+/g, 'compileSdk = 35');
-   c = c.replace(/targetSdk\\\\s*=\\\\s*\\\\d+/g, 'targetSdk = 35');
+   c = c.replace(/compileSdk\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'compileSdk 34');
+   c = c.replace(/targetSdk\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'targetSdk 34');
+   c = c.replace(/compileSdkVersion\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'compileSdkVersion 34');
+   c = c.replace(/targetSdkVersion\\\\s*\\\\(?\\\\s*\\\\d+\\\\s*\\\\)?/g, 'targetSdkVersion 34');
+   c = c.replace(/compileSdk\\\\s*=\\\\s*\\\\d+/g, 'compileSdk = 34');
+   c = c.replace(/targetSdk\\\\s*=\\\\s*\\\\d+/g, 'targetSdk = 34');
 
    if (fs.existsSync('android/app/google-services.json')) {
       if (!c.includes('com.google.gms.google-services')) {
@@ -388,13 +388,13 @@ const tomlFile = 'android/gradle/libs.versions.toml';
 if (fs.existsSync(tomlFile)) {
    console.log('Modifying libs.versions.toml');
    let c = fs.readFileSync(tomlFile, 'utf8');
-   c = c.replace(/compileSdk\\\\s*=\\\\s*["']?\\\\d+["']?/g, 'compileSdk = "35"');
-   c = c.replace(/targetSdk\\\\s*=\\\\s*["']?\\\\d+["']?/g, 'targetSdk = "35"');
+   c = c.replace(/compileSdk\\\\s*=\\\\s*["']?\\\\d+["']?/g, 'compileSdk = "34"');
+   c = c.replace(/targetSdk\\\\s*=\\\\s*["']?\\\\d+["']?/g, 'targetSdk = "34"');
    c = c.replace(/agp\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'agp = "8.7.2"');
-   c = c.replace(/coreKtx\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'coreKtx = "1.15.0"');
-   c = c.replace(/androidxCore\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'androidxCore = "1.15.0"');
-   c = c.replace(/androidx-core\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'androidx-core = "1.15.0"');
-   c = c.replace(/core\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'core = "1.15.0"');
+   c = c.replace(/coreKtx\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'coreKtx = "1.12.0"');
+   c = c.replace(/androidxCore\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'androidxCore = "1.12.0"');
+   c = c.replace(/androidx-core\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'androidx-core = "1.12.0"');
+   c = c.replace(/core\\\\s*=\\\\s*['"][\\\\d\\\\.]+['"]/g, 'core = "1.12.0"');
    fs.writeFileSync(tomlFile, c);
 }
 
@@ -434,7 +434,7 @@ config.plugins.SplashScreen = {
   androidScaleType: 'CENTER_CROP',
   showSpinner: false,
   splashFullScreen: false,
-  useDialog: false
+  splashImmersive: false
 };
 
 let isLight = true;
@@ -469,113 +469,26 @@ function getMainActivityPath(dir) {
 }
 const mainActivityPath = getMainActivityPath(javaDir);
 if (mainActivityPath) {
-    let javaCode = fs.readFileSync(mainActivityPath, 'utf8');
+    const mainActivityContent = \`package \${finalPackageName};
 
-    let needsOnCreate = true; // process.argv[8] === 'true' || process.argv[3] === 'true';
-    if (needsOnCreate) {
-        if (!javaCode.includes('import android.os.Build;')) {
-             javaCode = javaCode.replace(/(import [^;]+;)/, '$1\\nimport android.os.Build;\\nimport android.os.Bundle;\\nimport androidx.core.content.ContextCompat;\\nimport androidx.core.app.ActivityCompat;\\nimport android.app.NotificationChannel;\\nimport android.app.NotificationManager;\\nimport android.content.Context;\\nimport android.graphics.Color;');
-        }
-        if (!javaCode.includes('public void onCreate(')) {
-            let onCreateLogic = [
-                "    @Override",
-                "    public void onResume() {",
-                "        super.onResume();",
-                "        // Ensure background color is set when activity comes to foreground",
-                "        if (this.bridge != null && this.bridge.getWebView() != null) {",
-                "            try {",
-                "                this.bridge.getWebView().setBackgroundColor(android.graphics.Color.parseColor(\"" + blendColor + "\"));",
-                "                this.bridge.getWebView().setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);",
-                "            } catch (Exception e) {}",
-                "        }",
-                "    }",
-                "",
-                "    @Override",
-                "    public void onStart() {",
-                "        super.onStart();",
-                "        // Set WebView background early to match splash/theme and prevent black flashes",
-                "        if (this.bridge != null && this.bridge.getWebView() != null) {",
-                "            try {",
-                "                this.bridge.getWebView().setBackgroundColor(android.graphics.Color.parseColor(\"" + blendColor + "\"));",
-                "            } catch (Exception e) {}",
-                "        }",
-                "        ",
-                "        android.util.Log.d(\"MainActivity\", \"onStart called - checking version for cache sync\");",
-                "        android.content.SharedPreferences prefs = getSharedPreferences(\"app_prefs\", Context.MODE_PRIVATE);",
-                "        int currentVersionCode = 1;",
-                "        try {",
-                "            currentVersionCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;",
-                "        } catch (Exception e) {}",
-                "        ",
-                "        int savedVersionCode = prefs.getInt(\"version_code\", -1);",
-                "        if (savedVersionCode != -1 && savedVersionCode != currentVersionCode) {",
-                "            // Only clear cache and workers if it's an UPGRADE vs a fresh install",
-                "            // This avoids disruptive startup behavior on the very first launch",
-                "            if (this.bridge != null && this.bridge.getWebView() != null) {",
-                "                this.bridge.getWebView().clearCache(true);",
-                "            }",
-                "            prefs.edit().putInt(\"version_code\", currentVersionCode).apply();",
-                "            try {",
-                "                java.io.File webViewDir = new java.io.File(getApplicationInfo().dataDir, \"app_webview\");",
-                "                if (webViewDir.exists()) {",
-                "                    java.io.File[] swDirs = {",
-                "                        new java.io.File(webViewDir, \"Default/Service Worker\"),",
-                "                        new java.io.File(webViewDir, \"Service Worker\")",
-                "                    };",
-                "                    for (java.io.File dir : swDirs) {",
-                "                        if (dir.exists()) {",
-                "                            String[] children = dir.list();",
-                "                            if (children != null) {",
-                "                                for (String child : children) {",
-                "                                    new java.io.File(dir, child).delete();",
-                "                                }",
-                "                            }",
-                "                            dir.delete();",
-                "                        }",
-                "                    }",
-                "                }",
-                "            } catch (Exception e) {}",
-                "        } else if (savedVersionCode == -1) {",
-                "            // Fresh install, just save the version",
-                "            prefs.edit().putInt(\"version_code\", currentVersionCode).apply();",
-                "        }",
-                "    }",
-                "",
-                "    @Override",
-                "    public void onCreate(Bundle savedInstanceState) {",
-                "        super.onCreate(savedInstanceState);",
-                ""
-            ].join("\n");
-            
-            if (process.argv[8] === 'true') {
-                onCreateLogic += [
-                    "        if (Build.VERSION.SDK_INT >= 33) {",
-                    "            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {",
-                    "                ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);",
-                    "            }",
-                    "        }",
-                    ""
-                ].join("\n");
-            }
-            if (process.argv[3] === 'true') {
-                onCreateLogic += [
-                    "        if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {",
-                    "            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);",
-                    "            NotificationChannel channel = new NotificationChannel(\"primary_notifications_v4\", \"Primary Notifications\", NotificationManager.IMPORTANCE_HIGH);",
-                    "            channel.setDescription(\"Main app notifications\");",
-                    "            if (notificationManager != null) {",
-                    "                notificationManager.createNotificationChannel(channel);",
-                    "            }",
-                    "        }",
-                    ""
-                ].join("\n");
-            }
-            onCreateLogic += "    }\n";
-            javaCode = javaCode.replace(/public class MainActivity extends BridgeActivity \{/, 'public class MainActivity extends BridgeActivity {' + onCreateLogic);
-        }
+import android.os.Bundle;
+// Removed Window import
+
+import androidx.core.view.WindowCompat;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+
+        super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
     }
-
-    fs.writeFileSync(mainActivityPath, javaCode);
+}
+\`;
+    fs.writeFileSync(mainActivityPath, mainActivityContent);
 }
 
 if (process.argv[3] === 'true') {
@@ -682,39 +595,6 @@ if (fs.existsSync(indexPath)) {
   }
 
   // Capacitor plugins are natively configured via capacitor.config.json and MainActivity.java
-
-  let jsConfig = "";
-  if (${fullscreen === false}) {
-     jsConfig += "import { StatusBar, Style } from '@capacitor/status-bar';\\n";
-     jsConfig += "StatusBar.setOverlaysWebView({ overlay: false }).catch(()=>{});\\n";
-     jsConfig += "StatusBar.setBackgroundColor({ color: '${splashBackgroundColor || '#ffffff'}' }).catch(()=>{});\\n";
-     jsConfig += "let isBgLight = true;\\n";
-     jsConfig += "try {\\n";
-     jsConfig += "  const hexStr = ('${splashBackgroundColor || '#ffffff'}').replace('#', '');\\n";
-     jsConfig += "  const rColor = parseInt(hexStr.substr(0, 2), 16), gColor = parseInt(hexStr.substr(2, 2), 16), bColor = parseInt(hexStr.substr(4, 2), 16);\\n";
-     jsConfig += "  const yiqVal = ((rColor*299)+(gColor*587)+(bColor*114))/1000;\\n";
-     jsConfig += "  isBgLight = yiqVal >= 128;\\n";
-     jsConfig += "} catch(e) {}\\n";
-     jsConfig += "StatusBar.setStyle({ style: isBgLight ? Style.Light : Style.Dark }).catch(()=>{});\\n";
-  }
-  if (${doubleTapToExit}) {
-     jsConfig += "import { App } from '@capacitor/app';\\n";
-     jsConfig += "import { Toast } from '@capacitor/toast';\\n";
-     jsConfig += "let lastBack = 0;\\n";
-     jsConfig += "App.addListener('backButton', ({ canGoBack }) => {\\n";
-     jsConfig += "  if (canGoBack) { window.history.back(); } else {\\n";
-     jsConfig += "    const now = Date.now();\\n";
-     jsConfig += "    if (now - lastBack < 2000) { App.exitApp(); } else {\\n";
-     jsConfig += "      lastBack = now;\\n";
-     jsConfig += "      Toast.show({ text: 'Press back again to exit' });\\n";
-     jsConfig += "    }\\n";
-     jsConfig += "  }\\n";
-     jsConfig += "}).catch(()=>{});\\n";
-  }
-  if (jsConfig) {
-     const scriptInject = "\\n<script type=\\\"module\\\">\\n" + jsConfig + "</script>\\n";
-     content = content.replace('</body>', scriptInject + '</body>');
-  }
 
   fs.writeFileSync(indexPath, content);
 }
@@ -840,60 +720,15 @@ function updateStyles(file) {
   if (!fs.existsSync(file)) return;
   let content = fs.readFileSync(file, 'utf8');
   
-  // Fix Splash Screen Background and Root background to avoid black flash
-  if (content.includes('name="AppTheme.NoActionBarLaunch"')) {
-      const splashInjection = "\\n" +
-'        <item name="windowSplashScreenBackground">' + bgColor + '</item>\\n' +
-'        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_round</item>\\n' +
-'        <item name="android:windowBackground">' + bgColor + '</item>\\n' +
-'        <item name="android:background">' + bgColor + '</item>\\n      ';
-
-      content = content.replace(/(<style name="AppTheme\\.NoActionBarLaunch"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
-          if (!p1.includes('windowSplashScreenBackground')) {
-              p1 = p1 + splashInjection;
-          }
-          return p1 + p2;
-      });
-  }
-
-  // Ensure main background is also set
-  ['AppTheme', 'AppTheme.NoActionBar'].forEach(theme => {
-      const regexStr = '(<style name="' + theme + '"[^>]*>[\\\\s\\\\S]*?)(<\\\\/style>)';
+  // Strip theme to only windowBackground and opt-out of edge-to-edge for stability
+  const themes = ['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'];
+  themes.forEach(theme => {
+      const regexStr = '(<style name="' + theme + '"[^>]*>)([\\\\s\\\\S]*?)(<\\\\/style>)';
       const regex = new RegExp(regexStr);
-      content = content.replace(regex, (match, p1, p2) => {
-          if (!p1.includes('android:windowBackground')) {
-              p1 = p1 + '\\n        <item name="android:windowBackground">' + bgColor + '</item>\\n      ';
-          }
-          return p1 + p2;
+      content = content.replace(regex, (match, p1, p2, p3) => {
+          return p1 + '\\n        <item name="android:windowBackground">' + bgColor + '</item>\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\\n      ' + p3;
       });
   });
-
-  // Opt out of edge-to-edge globally for all themes
-  ['AppTheme', 'AppTheme.NoActionBarLaunch', 'AppTheme.NoActionBar'].forEach(theme => {
-      const regexStr = '(<style name="' + theme + '"[^>]*>[\\\\s\\\\S]*?)(<\\\\/style>)';
-      const regex = new RegExp(regexStr);
-      content = content.replace(regex, (match, p1, p2) => {
-          if (!p1.includes('android:windowOptOutEdgeToEdgeEnforcement')) {
-              p1 = p1 + '\\n        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\\n      ';
-          }
-          return p1 + p2;
-      });
-  });
-
-  // Handle Fullscreen UI
-  if (isFullscreen) {
-      if (content.includes('name="AppTheme.NoActionBar"')) {
-          const fullscreenInjection = '\\n        <item name="android:windowFullscreen">true</item>\\n      ';
-          content = content.replace(/(<style name="AppTheme\\.NoActionBar"[^>]*>[\\s\\S]*?)(<\\/style>)/, (match, p1, p2) => {
-              if (!p1.includes('android:windowFullscreen')) {
-                  p1 = p1 + fullscreenInjection;
-              }
-              return p1 + p2;
-          });
-      }
-  } else {
-      // Status bar and Navigation bar settings removed for testing
-  }
 
   fs.writeFileSync(file, content);
 }
